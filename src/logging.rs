@@ -11,16 +11,10 @@ use crate::usb_serial::SensorData;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RtcmData {
+    pub timestamp_ns: u64,
     message_type: Option<u16>,
     data_length: usize,
     data_hex: String, // Hex representation of RTCM data
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct LogEntry<T> {
-    pub timestamp_ns: u64,
-    #[serde(flatten)]
-    pub data: T,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -28,6 +22,45 @@ pub enum LoggerPackets {
     NmeaSentence(Nmea),
     RtcmData(RtcmData),
     SensorData(SensorData),
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GpsLogData {
+    pub timestamp_ns: u64,
+    pub fix_time: Option<String>,
+    pub fix_date: Option<String>,
+    pub fix_type: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub altitude: Option<f32>,
+    pub speed_over_ground: Option<f32>,
+    pub true_course: Option<f32>,
+    pub num_of_fix_satellites: Option<u32>,
+    pub hdop: Option<f32>,
+    pub vdop: Option<f32>,
+    pub pdop: Option<f32>,
+    pub geoid_separation: Option<f32>,
+}
+
+impl GpsLogData {
+    fn from_nmea(nmea: Nmea, timestamp_ns: u64) -> Self {
+        GpsLogData {
+            timestamp_ns,
+            fix_time: nmea.fix_time.map(|t| format!("{:?}", t)),
+            fix_date: nmea.fix_date.map(|d| format!("{:?}", d)),
+            fix_type: nmea.fix_type.map(|t| format!("{:?}", t)),
+            latitude: nmea.latitude,
+            longitude: nmea.longitude,
+            altitude: nmea.altitude,
+            speed_over_ground: nmea.speed_over_ground,
+            true_course: nmea.true_course,
+            num_of_fix_satellites: nmea.num_of_fix_satellites,
+            hdop: nmea.hdop,
+            vdop: nmea.vdop,
+            pdop: nmea.pdop,
+            geoid_separation: nmea.geoid_separation,
+        }
+    }
 }
 
 
@@ -61,7 +94,9 @@ impl Logger {
     pub fn log_rtcm(&self, data: &[u8]) {
         let message_type = extract_rtcm_message_type(data);
         let data_hex = hex_encode(data);
+        let timestamp_ns = get_timestamp_nanos();
         let data = RtcmData {
+            timestamp_ns,
             message_type,
             data_length: data.len(),
             data_hex: data_hex,
@@ -102,21 +137,19 @@ fn run_logger(rx: Receiver<LoggerPackets>, log_file_path: PathBuf) -> std::io::R
     loop {
         match rx.recv() {
             Ok(packet) => {
-                let timestamp_ns = get_timestamp_nanos();
                 match packet {
                     LoggerPackets::NmeaSentence(data) => {
-                        let entry = LogEntry { timestamp_ns, data };
-                        gps_writer.serialize(entry)?;
+                        let timestamp_ns = get_timestamp_nanos();
+                        let gps_data = GpsLogData::from_nmea(data, timestamp_ns);
+                        gps_writer.serialize(gps_data)?;
                         gps_writer.flush()?;
                     }
                     LoggerPackets::RtcmData(data) => {
-                        let entry = LogEntry { timestamp_ns, data };
-                        rtcm_writer.serialize(entry)?;
+                        rtcm_writer.serialize(data)?;
                         rtcm_writer.flush()?;
                     }
                     LoggerPackets::SensorData(data) => {
-                        let entry = LogEntry { timestamp_ns, data };
-                        sensor_writer.serialize(entry)?;
+                        sensor_writer.serialize(data)?;
                         sensor_writer.flush()?;
                     }
                 }

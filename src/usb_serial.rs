@@ -2,50 +2,59 @@ use serde::Serialize;
 use serialport;
 use serialport::Error;
 use serialport::TTYPort;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SensorData {
-    pub motor_1_rpm: Option<f32>,
-    pub motor_2_rpm: Option<f32>,
-    pub motor_1_tot_rotations: Option<f32>,
-    pub motor_2_tot_rotations: Option<f32>,
+    #[serde(skip_deserializing)]
+    pub timestamp_ns: u64,
     pub time_ms: Option<u32>,
-    pub roll: Option<f32>,
-    pub pitch: Option<f32>,
-    pub yaw: Option<f32>,
-    pub current_motor_1_ma: Option<f32>,
-    pub current_motor_2_ma: Option<f32>,
-    pub acc_x: Option<f32>,
-    pub acc_y: Option<f32>,
-    pub acc_z: Option<f32>,
+    pub voltage_left: Option<f32>,
+    pub current_left_a: Option<f32>,
+    pub voltage_right: Option<f32>,
+    pub current_right_a: Option<f32>,
+    pub motor_current_left: Option<f32>,
+    pub motor_current_right: Option<f32>,
+    pub euler_x: Option<f32>,
+    pub euler_y: Option<f32>,
+    pub euler_z: Option<f32>,
+    pub acc_lin_x: Option<f32>,
+    pub acc_lin_y: Option<f32>,
+    pub acc_lin_z: Option<f32>,
     pub sonar_mm: Option<f32>,
-    pub tof1_mm: Option<f32>,
-    pub tof2_mm: Option<f32>,
+    pub tof_mm: Option<f32>,
+    pub rpm_left: Option<f32>,
+    pub rpm_right: Option<f32>,
+    pub rotations_left: Option<f32>,
+    pub rotations_right: Option<f32>,
 }
 
 impl Default for SensorData {
     fn default() -> Self {
         SensorData {
-            motor_1_rpm: None,
-            motor_2_rpm: None,
-            motor_1_tot_rotations: None,
-            motor_2_tot_rotations: None,
+            timestamp_ns: 0,
             time_ms: None,
-            roll: None,
-            pitch: None,
-            yaw: None,
-            current_motor_1_ma: None,
-            current_motor_2_ma: None,
-            acc_x: None,
-            acc_y: None,
-            acc_z: None,
+            voltage_left: None,
+            current_left_a: None,
+            voltage_right: None,
+            current_right_a: None,
+            motor_current_left: None,
+            motor_current_right: None,
+            euler_x: None,
+            euler_y: None,
+            euler_z: None,
+            acc_lin_x: None,
+            acc_lin_y: None,
+            acc_lin_z: None,
             sonar_mm: None,
-            tof1_mm: None,
-            tof2_mm: None,
+            tof_mm: None,
+            rpm_left: None,
+            rpm_right: None,
+            rotations_left: None,
+            rotations_right: None,
         }
     }
 }
@@ -54,11 +63,12 @@ impl Default for SensorData {
 #[derive(Debug)]
 pub struct ArduinoSerialPort {
     reader: BufReader<TTYPort>,  // Buffered reader for line-based reads
+    buffer: String,
 }
 
 
 pub fn open_port(port: PathBuf) -> Result<ArduinoSerialPort, Error> {
-    const BAUD_RATE: u32 = 9600;
+    const BAUD_RATE: u32 = 115200;
 
     match serialport::new(port.to_string_lossy(), BAUD_RATE)
         .timeout(Duration::from_secs(1))  // 1s timeout for reads
@@ -67,7 +77,7 @@ pub fn open_port(port: PathBuf) -> Result<ArduinoSerialPort, Error> {
         Ok(arduino_port) => {
             println!("Successfully opened port {} at {} baud.", port.to_string_lossy(), BAUD_RATE);
             let reader = BufReader::new(arduino_port);  // Wrap for buffered line reads
-            Ok(ArduinoSerialPort { reader })
+            Ok(ArduinoSerialPort { reader, buffer: String::new() })
         }
         Err(e) => {
             eprintln!("Failed to open \"{}\". Error: {}", port.to_string_lossy(), e);
@@ -77,77 +87,102 @@ pub fn open_port(port: PathBuf) -> Result<ArduinoSerialPort, Error> {
 }
 
 
+
 impl ArduinoSerialPort {
-    pub fn read_line(&mut self) -> Result<SensorData, Error> {
-        let mut line = String::new();
-        match self.reader.read_line(&mut line) {
-            Ok(bytes_read) if bytes_read > 0 => {
-                // Remove trailing newline chars
-                let trimmed = line.trim_end_matches(|c| c == '\r' || c == '\n');
-                if trimmed.is_empty() {
-                    return Ok(SensorData::default());
-                }
-                // println!("Read line: {} ({} bytes)", trimmed, bytes_read);
-
-                // Parse the line into SensorData
-                let parts: Vec<&str> = trimmed.split(",").map(|s| s.trim()).collect();
-                if parts.len() != 10 {
-                    println!("Invalid Arduino data line: {}", trimmed);
-                    return Err(Error::new(
-                        serialport::ErrorKind::Io(std::io::ErrorKind::InvalidData),
-                        format!("Expected 10 parts, got {}", parts.len()),
-                    ));
-                }
-
-                let motor_1_rpm: f32 = parts[0].parse().unwrap();
-                let motor_2_rpm: f32 = parts[1].parse().unwrap();
-                let motor_1_tot_rotations: f32 = parts[2].parse().unwrap();
-                let motor_2_tot_rotations: f32 = parts[3].parse().unwrap();
-                let time_ms: u32 = parts[4].parse().unwrap();
-                // let roll: f32 = parts[5].parse().unwrap();
-                // let pitch: f32 = parts[6].parse().unwrap();
-                // let yaw: f32 = parts[7].parse().unwrap();
-                let current_motor_1_ma: f32 = parts[5].parse().unwrap();
-                let current_motor_2_ma: f32 = parts[6].parse().unwrap();
-                let sonar_mm: f32 = parts[7].parse().unwrap();
-                let tof1_mm: f32 = parts[8].parse().unwrap();
-                let tof2_mm: f32 = parts[9].parse().unwrap();
-                // let acc_x: f32 = parts[7].parse().unwrap();
-                // let acc_y: f32 = parts[8].parse().unwrap();
-                // let acc_z: f32 = parts[9].parse().unwrap();
-
-                let data = SensorData {
-                    motor_1_rpm: Some(motor_1_rpm),
-                    motor_2_rpm: Some(motor_2_rpm),
-                    motor_1_tot_rotations: Some(motor_1_tot_rotations),
-                    motor_2_tot_rotations: Some(motor_2_tot_rotations),
-                    time_ms: Some(time_ms),
-                    sonar_mm: Some(sonar_mm),
-                    tof1_mm: Some(tof1_mm),
-                    tof2_mm: Some(tof2_mm),
-                    // roll,
-                    // pitch,
-                    // yaw,
-                    current_motor_1_ma: Some(current_motor_1_ma),
-                    current_motor_2_ma: Some(current_motor_2_ma),
-                    // acc_x,
-                    // acc_y,
-                    // acc_z,
-                    ..Default::default()
-                };
-
-                // println!("Parsed data: {:?}", data);
-                Ok(data)
+    pub fn read_data(&mut self) -> Result<Option<SensorData>, Error> {
+        // Read available data into buffer
+        let mut buf = [0u8; 1024];
+        match self.reader.read(&mut buf) {
+            Ok(n) if n > 0 => {
+                let s = String::from_utf8_lossy(&buf[..n]);
+                self.buffer.push_str(&s);
             }
-            Ok(_) => Err(Error::new(
-                serialport::ErrorKind::Io(std::io::ErrorKind::UnexpectedEof),
-                "Unexpected EOF",
-            )),
-            Err(e) => {
-                eprintln!("Error reading line from Arduino serial port: {}", e);
-                Err(Error::from(e))
+            Ok(_) => {} // EOF or 0 bytes
+            Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {}
+            Err(e) => return Err(Error::from(e)),
+        }
+
+        // Prevent buffer from growing indefinitely if no "Ard" is found
+        if self.buffer.len() > 4096 {
+            if let Some(idx) = self.buffer.find("Ard") {
+                if idx > 0 {
+                    self.buffer.drain(..idx);
+                }
+            } else {
+                // Keep last few bytes in case "Ard" is split
+                let len = self.buffer.len();
+                if len > 3 {
+                    self.buffer.drain(..len - 3);
+                }
             }
         }
+
+        // Look for "Ard" delimiter
+        if let Some(start_idx) = self.buffer.find("Ard") {
+            // Discard garbage before first "Ard"
+            if start_idx > 0 {
+                self.buffer.drain(..start_idx);
+            }
+
+            // Now buffer starts with "Ard". Look for the next "Ard".
+            // We search from index 3 to skip the first "Ard"
+            if let Some(end_idx) = self.buffer[3..].find("Ard") {
+                let end_idx = end_idx + 3; // Adjust index relative to buffer start
+
+                // Extract the packet content (between the two "Ard"s)
+                let packet_str = self.buffer[3..end_idx].to_string();
+
+                // Remove the processed packet from buffer.
+                // We drain up to end_idx, so the next "Ard" becomes the start of the buffer.
+                self.buffer.drain(..end_idx);
+
+                // Parse the packet
+                return Ok(Some(self.parse_sensor_data(&packet_str)));
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn parse_sensor_data(&self, data: &str) -> SensorData {
+        let mut sensor_data = SensorData::default();
+        sensor_data.timestamp_ns = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_nanos() as u64;
+
+        // Remove leading comma if present (common if format is "Ard,val1,val2...")
+        let clean_data = data.trim().trim_start_matches(',');
+        
+        // Split by comma, trim whitespace, but KEEP empty strings to preserve position
+        let parts: Vec<&str> = clean_data.split(',').map(|s| s.trim()).collect();
+
+        // Order: time_ms, voltage_left, current_left_a, voltage_right_a, current_right_a,
+        // motor_current_left, motor_current_right, euler_x, euler_y, euler_z, acc_lin_x, 
+        // acc_lin_y, acc_lin_z, sonar_mm, tof_mm, rpm_left, rpm_right, rotations_left, 
+        // rotations_right
+
+        if parts.len() >= 1 { sensor_data.time_ms = parts[0].parse().ok(); }
+        if parts.len() >= 2 { sensor_data.voltage_left = parts[1].parse().ok(); }
+        if parts.len() >= 3 { sensor_data.current_left_a = parts[2].parse().ok(); }
+        if parts.len() >= 4 { sensor_data.voltage_right = parts[3].parse().ok(); }
+        if parts.len() >= 5 { sensor_data.current_right_a = parts[4].parse().ok(); }
+        if parts.len() >= 6 { sensor_data.motor_current_left = parts[5].parse().ok(); }
+        if parts.len() >= 7 { sensor_data.motor_current_right = parts[6].parse().ok(); }
+        if parts.len() >= 8 { sensor_data.euler_x = parts[7].parse().ok(); }
+        if parts.len() >= 9 { sensor_data.euler_y = parts[8].parse().ok(); }
+        if parts.len() >= 10 { sensor_data.euler_z = parts[9].parse().ok(); }
+        if parts.len() >= 11 { sensor_data.acc_lin_x = parts[10].parse().ok(); }
+        if parts.len() >= 12 { sensor_data.acc_lin_y = parts[11].parse().ok(); }
+        if parts.len() >= 13 { sensor_data.acc_lin_z = parts[12].parse().ok(); }
+        if parts.len() >= 14 { sensor_data.sonar_mm = parts[13].parse().ok(); }
+        if parts.len() >= 15 { sensor_data.tof_mm = parts[14].parse().ok(); }
+        if parts.len() >= 16 { sensor_data.rpm_left = parts[15].parse().ok(); }
+        if parts.len() >= 17 { sensor_data.rpm_right = parts[16].parse().ok(); }
+        if parts.len() >= 18 { sensor_data.rotations_left = parts[17].parse().ok(); }
+        if parts.len() >= 19 { sensor_data.rotations_right = parts[18].parse().ok(); }
+
+        sensor_data
     }
 
     pub fn get_port_mut(&mut self) -> &mut TTYPort {

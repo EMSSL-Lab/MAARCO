@@ -26,15 +26,25 @@ struct Args {
     /// Arduino serial port path (e.g., /dev/ttyACM0)
     #[arg(long, default_value = "/dev/ttyACM0")]
     arduino_port: PathBuf,
-    /// Log file path (default: bot_test.csv)
-    #[arg(long, default_value = "bot_test.csv")]
-    log_file: PathBuf,
+    /// Log file path (default: logs/YYYY-MM-DD_HH-MM-SS.csv)
+    #[arg(long)]
+    log_file: Option<PathBuf>,
 }
 
 fn main() -> std::io::Result<()> {
     let args = Args::parse();
 
-    let logger = logging::Logger::new(args.log_file)?;
+    let log_file = match args.log_file {
+        Some(path) => path,
+        None => {
+            std::fs::create_dir_all("logs")?;
+            let now = chrono::Local::now();
+            let filename = format!("{}", now.format("%Y-%m-%d_%H-%M-%S.csv"));
+            PathBuf::from("logs").join(filename)
+        }
+    };
+
+    let logger = logging::Logger::new(log_file)?;
     let mut gps_port = gps_serial::open_port(args.gps_port);
     let mut arduino_port = usb_serial::open_port(args.arduino_port);
 
@@ -95,19 +105,21 @@ fn main() -> std::io::Result<()> {
                 }
             }
 
-            // display.update_gps(&mut stdout, &parser)?;
+            display.update_gps(&mut stdout, &parser)?;
         }
 
         // Read from Arduino serial port, if connected
         if arduino_connected {
-            let arduino_serial_data = arduino_port.as_mut().unwrap().read_line();
+            let arduino_serial_data = arduino_port.as_mut().unwrap().read_data();
             if arduino_serial_data.is_err() {
-                println!("Error reading from Arduino serial port");
+                // println!("Error reading from Arduino serial port");
                 continue;
             }
-            let sensor_data = arduino_serial_data.unwrap();
-            logger.log_sensor_data(&sensor_data);
-            // display.update_arduino(&mut stdout, &sensor_data)?;
+            if let Some(sensor_data) = arduino_serial_data.unwrap() {
+                // println!("Received sensor data: {:?}", sensor_data);
+                logger.log_sensor_data(&sensor_data);
+                display.update_arduino(&mut stdout, &sensor_data)?;
+            }
         };
 
     }

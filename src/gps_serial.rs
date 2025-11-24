@@ -69,6 +69,9 @@ impl SerialReader {
                 // No data read
                 Ok(sentences)
             }
+            Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {
+                Ok(sentences)
+            }
             Err(e) => {
                 // eprintln!("Error reading from port: {:?}", e);
                 Err(Error::from(e))

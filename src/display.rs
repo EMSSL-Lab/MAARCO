@@ -12,6 +12,8 @@ use crate::usb_serial::SensorData;
 
 pub struct Display {
     prev_lines: u16,
+    last_gps: Option<Nmea>,
+    last_arduino: Option<SensorData>,
 }
 
 enum DisplayItem {
@@ -22,11 +24,184 @@ enum DisplayItem {
 
 impl Display {
     pub fn new() -> Self {
-        Self { prev_lines: 0 }
+        Self { 
+            prev_lines: 0,
+            last_gps: None,
+            last_arduino: None,
+        }
     }
 
     // Private helper to render a list of DisplayItems
-    fn render<W: Write>(&mut self, stdout: &mut W, items: &[DisplayItem]) -> std::io::Result<()> {
+    fn render<W: Write>(&mut self, stdout: &mut W) -> std::io::Result<()> {
+        let mut items = Vec::new();
+
+        // GPS Data
+        if let Some(parser) = &self.last_gps {
+            let sats = parser.satellites();
+            let mut avg_snr = 0u32;
+            let mut count = 0u32;
+            for sat in &sats {
+                if let Some(snr) = sat.snr() {
+                    avg_snr += snr as u32;
+                    count += 1;
+                }
+            }
+            let avg_snr_value = if count > 0 { avg_snr / count } else { 0 };
+
+            items.push(DisplayItem::Header("=== GPS DATA ===".to_string(), Color::Yellow));
+            items.push(DisplayItem::Data(
+                "Timestamp".to_string(),
+                format!("{:?}", parser.fix_time.unwrap_or_default()),
+                None,
+            ));
+            items.push(DisplayItem::Data(
+                "Latitude".to_string(),
+                format!("{:?}", parser.latitude.unwrap_or_default()),
+                None,
+            ));
+            items.push(DisplayItem::Data(
+                "Longitude".to_string(),
+                format!("{:?}", parser.longitude.unwrap_or_default()),
+                None,
+            ));
+            items.push(DisplayItem::Data(
+                "Altitude".to_string(),
+                format!("{:?}", parser.altitude.unwrap_or_default()),
+                Some("m".to_string()),
+            ));
+            items.push(DisplayItem::Data(
+                "Fix Type".to_string(),
+                format!("{:?}", parser.fix_type.unwrap_or_else(|| FixType::Simulation)),
+                None,
+            ));
+            items.push(DisplayItem::Data(
+                "Speed".to_string(),
+                format!("{:?}", parser.speed_over_ground.unwrap_or_default()),
+                Some("km/h".to_string()),
+            ));
+            items.push(DisplayItem::Data(
+                "Number of Satellites".to_string(),
+                format!("{:?}", parser.num_of_fix_satellites.unwrap_or_default()),
+                None,
+            ));
+            items.push(DisplayItem::Data("HDOP".to_string(), format!("{:?}", parser.hdop.unwrap_or_default()), None));
+            items.push(DisplayItem::Data("VDOP".to_string(), format!("{:?}", parser.vdop.unwrap_or_default()), None));
+            items.push(DisplayItem::Data("PDOP".to_string(), format!("{:?}", parser.pdop.unwrap_or_default()), None));
+            items.push(DisplayItem::Data(
+                "Avg SNR".to_string(),
+                format!("{:?}", avg_snr_value),
+                Some("db-Hz".to_string()),
+            ));
+            items.push(DisplayItem::Divider("=================".to_string(), Color::Yellow));
+        }
+
+        // Arduino Data
+        if let Some(arduino_data) = &self.last_arduino {
+            let fmt_f32 = |val: Option<f32>| -> String {
+                val.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "N/A".to_string())
+            };
+            let fmt_u32 = |val: Option<u32>| -> String {
+                val.map(|v| format!("{}", v)).unwrap_or_else(|| "N/A".to_string())
+            };
+
+            items.push(DisplayItem::Header("=== Arduino Sensor Data ===".to_string(), Color::Yellow));
+            items.push(DisplayItem::Data(
+                "Time".to_string(),
+                fmt_u32(arduino_data.time_ms),
+                Some("ms".to_string()),
+            ));
+            items.push(DisplayItem::Data(
+                "Voltage Left".to_string(),
+                fmt_f32(arduino_data.voltage_left),
+                Some("V".to_string()),
+            ));
+            items.push(DisplayItem::Data(
+                "Current Left".to_string(),
+                fmt_f32(arduino_data.current_left_a),
+                Some("A".to_string()),
+            ));
+            items.push(DisplayItem::Data(
+                "Voltage Right".to_string(),
+                fmt_f32(arduino_data.voltage_right),
+                Some("V".to_string()),
+            ));
+            items.push(DisplayItem::Data(
+                "Current Right".to_string(),
+                fmt_f32(arduino_data.current_right_a),
+                Some("A".to_string()),
+            ));
+            items.push(DisplayItem::Data(
+                "Motor Current Left".to_string(),
+                fmt_f32(arduino_data.motor_current_left),
+                Some("A".to_string()),
+            ));
+            items.push(DisplayItem::Data(
+                "Motor Current Right".to_string(),
+                fmt_f32(arduino_data.motor_current_right),
+                Some("A".to_string()),
+            ));
+            items.push(DisplayItem::Data(
+                "Euler X".to_string(),
+                fmt_f32(arduino_data.euler_x),
+                Some("°".to_string()),
+            ));
+            items.push(DisplayItem::Data(
+                "Euler Y".to_string(),
+                fmt_f32(arduino_data.euler_y),
+                Some("°".to_string()),
+            ));
+            items.push(DisplayItem::Data(
+                "Euler Z".to_string(),
+                fmt_f32(arduino_data.euler_z),
+                Some("°".to_string()),
+            ));
+            items.push(DisplayItem::Data(
+                "Acc Lin X".to_string(),
+                fmt_f32(arduino_data.acc_lin_x),
+                Some("m/s²".to_string()),
+            ));
+            items.push(DisplayItem::Data(
+                "Acc Lin Y".to_string(),
+                fmt_f32(arduino_data.acc_lin_y),
+                Some("m/s²".to_string()),
+            ));
+            items.push(DisplayItem::Data(
+                "Acc Lin Z".to_string(),
+                fmt_f32(arduino_data.acc_lin_z),
+                Some("m/s²".to_string()),
+            ));
+            items.push(DisplayItem::Data(
+                "Sonar".to_string(),
+                fmt_f32(arduino_data.sonar_mm),
+                Some("mm".to_string()),
+            ));
+            items.push(DisplayItem::Data(
+                "ToF".to_string(),
+                fmt_f32(arduino_data.tof_mm),
+                Some("mm".to_string()),
+            ));
+            items.push(DisplayItem::Data(
+                "RPM Left".to_string(),
+                fmt_f32(arduino_data.rpm_left),
+                None,
+            ));
+            items.push(DisplayItem::Data(
+                "RPM Right".to_string(),
+                fmt_f32(arduino_data.rpm_right),
+                None,
+            ));
+            items.push(DisplayItem::Data(
+                "Rotations Left".to_string(),
+                fmt_f32(arduino_data.rotations_left),
+                None,
+            ));
+            items.push(DisplayItem::Data(
+                "Rotations Right".to_string(),
+                fmt_f32(arduino_data.rotations_right),
+                None,
+            ));
+        }
+
         let max_len = items
             .iter()
             .filter_map(|item| {
@@ -54,7 +229,7 @@ impl Display {
                 DisplayItem::Header(s, c) | DisplayItem::Divider(s, c) => {
                     queue!(
                         stdout,
-                        SetForegroundColor(*c),
+                        SetForegroundColor(c),
                         Print(s),
                         ResetColor,
                         Print("\n")
@@ -91,66 +266,8 @@ impl Display {
     }
 
     pub fn update_gps<W: Write>(&mut self, stdout: &mut W, parser: &Nmea) -> std::io::Result<()> {
-        let sats = parser.satellites();
-        let mut avg_snr = 0u32;
-        let mut count = 0u32;
-        for sat in &sats {
-            if let Some(snr) = sat.snr() {
-                avg_snr += snr as u32;
-                count += 1;
-            }
-        }
-        let avg_snr_value = if count > 0 { avg_snr / count } else { 0 };
-
-        let items = vec![
-            DisplayItem::Header("=== GPS DATA ===".to_string(), Color::Yellow),
-            DisplayItem::Data(
-                "Timestamp".to_string(),
-                format!("{:?}", parser.fix_time.unwrap_or_default()),
-                None,
-            ),
-            DisplayItem::Data(
-                "Latitude".to_string(),
-                format!("{:?}", parser.latitude.unwrap_or_default()),
-                None,
-            ),
-            DisplayItem::Data(
-                "Longitude".to_string(),
-                format!("{:?}", parser.longitude.unwrap_or_default()),
-                None,
-            ),
-            DisplayItem::Data(
-                "Altitude".to_string(),
-                format!("{:?}", parser.altitude.unwrap_or_default()),
-                Some("m".to_string()),
-            ),
-            DisplayItem::Data(
-                "Fix Type".to_string(),
-                format!("{:?}", parser.fix_type.unwrap_or_else(|| FixType::Simulation)),
-                None,
-            ),
-            DisplayItem::Data(
-                "Speed".to_string(),
-                format!("{:?}", parser.speed_over_ground.unwrap_or_default()),
-                Some("km/h".to_string()),
-            ),
-            DisplayItem::Data(
-                "Number of Satellites".to_string(),
-                format!("{:?}", parser.num_of_fix_satellites.unwrap_or_default()),
-                None,
-            ),
-            DisplayItem::Data("HDOP".to_string(), format!("{:?}", parser.hdop.unwrap_or_default()), None),
-            DisplayItem::Data("VDOP".to_string(), format!("{:?}", parser.vdop.unwrap_or_default()), None),
-            DisplayItem::Data("PDOP".to_string(), format!("{:?}", parser.pdop.unwrap_or_default()), None),
-            DisplayItem::Divider("=================".to_string(), Color::Yellow),
-            DisplayItem::Data(
-                "Avg SNR".to_string(),
-                format!("{:?}", avg_snr_value),
-                Some("db-Hz".to_string()),
-            ),
-        ];
-
-        self.render(stdout, &items)
+        self.last_gps = Some(parser.clone());
+        self.render(stdout)
     }
 
     pub fn update_arduino<W: Write>(
@@ -158,70 +275,7 @@ impl Display {
         stdout: &mut W,
         arduino_data: &SensorData,
     ) -> std::io::Result<()> {
-        let items = vec![
-            DisplayItem::Header("=== Arduino Sensor Data ===".to_string(), Color::Yellow),
-            DisplayItem::Data(
-                "Sonar".to_string(),
-                format!("{:?}", arduino_data.sonar_mm),
-                Some("mm".to_string()),
-            ),
-            DisplayItem::Data(
-                "ToF1".to_string(),
-                format!("{:?}", arduino_data.tof1_mm),
-                Some("mm".to_string()),
-            ),
-            DisplayItem::Data(
-                "ToF2".to_string(),
-                format!("{:?}", arduino_data.tof2_mm),
-                Some("mm".to_string()),
-            ),
-            DisplayItem::Data(
-                "Current Motor 1".to_string(),
-                format!("{:?}", arduino_data.current_motor_1_ma),
-                Some("A".to_string()),
-            ),
-            DisplayItem::Data(
-                "Current Motor 2".to_string(),
-                format!("{:?}", arduino_data.current_motor_2_ma),
-                Some("A".to_string()),
-            ),
-            // DisplayItem::Data(
-            //     "Roll".to_string(),
-            //     format!("{:?}", arduino_data.roll),
-            //     Some("°".to_string()),
-            // ),
-            // DisplayItem::Data(
-            //     "Pitch".to_string(),
-            //     format!("{:?}", arduino_data.pitch),
-            //     Some("°".to_string()),
-            // ),
-            // DisplayItem::Data(
-            //     "Yaw".to_string(),
-            //     format!("{:?}", arduino_data.yaw),
-            //     Some("°".to_string()),
-            // ),
-            DisplayItem::Data(
-                "Motor 1 RPM".to_string(),
-                format!("{:?}", arduino_data.motor_1_rpm),
-                None,
-            ),
-            DisplayItem::Data(
-                "Motor 2 RPM".to_string(),
-                format!("{:?}", arduino_data.motor_2_rpm),
-                None,
-            ),
-            DisplayItem::Data(
-                "Motor 1 Total Rotations".to_string(),
-                format!("{:?}", arduino_data.motor_1_tot_rotations),
-                None,
-            ),
-            DisplayItem::Data(
-                "Motor 2 Total Rotations".to_string(),
-                format!("{:?}", arduino_data.motor_2_tot_rotations),
-                None,
-            ),
-        ];
-
-        self.render(stdout, &items)
+        self.last_arduino = Some(arduino_data.clone());
+        self.render(stdout)
     }
 }
