@@ -85,7 +85,9 @@ fn main() -> std::io::Result<()> {
             for sentence in &sentences {
                 gps::parser::parse_nmea_sentence(&mut parser, sentence);
             }
-            logger.log_nmea(parser.clone());
+            if !sentences.is_empty() {
+                logger.log_nmea(parser.clone());
+            }
 
             // Write any pending NTRIP correction data to serial
             loop {
@@ -105,7 +107,9 @@ fn main() -> std::io::Result<()> {
                 }
             }
 
-            display.update_gps(&mut stdout, &parser)?;
+            if !sentences.is_empty() {
+                display.update_gps(&mut stdout, &parser)?;
+            }
         }
 
         // Read from Arduino serial port, if connected
