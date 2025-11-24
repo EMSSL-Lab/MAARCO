@@ -1,7 +1,7 @@
-// src/logger.rs
+// src/logging.rs
 use csv::Writer;
+use nmea::Nmea;
 use serde::Serialize;
-use std::fs::File;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
@@ -9,102 +9,38 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::usb_serial::SensorData;
 
 
-// Helper macro to create structs with field names
-macro_rules! make_struct_with_fields {
-    (
-        $(#[$attr:meta])*
-        pub struct $name:ident { $($fname:ident : $ftype:ty),* $(,)? }
-    ) => {
-        $(#[$attr])*
-        pub struct $name {
-            $($fname : $ftype),*
-        }
-
-        impl $name {
-            fn field_names() -> Vec<String> {
-                vec![$(stringify!($fname).to_string()),*]
-            }
-        }
-    };
+#[derive(Debug, Clone, Serialize)]
+pub struct RtcmData {
+    message_type: Option<u16>,
+    data_length: usize,
+    data_hex: String, // Hex representation of RTCM data
 }
 
-make_struct_with_fields! {
-    #[derive(Debug, Clone, Serialize)]
-    pub struct NmeaSentence {
-        sentence: String,
-    }
-}
-make_struct_with_fields! {
-    #[derive(Debug, Clone, Serialize)]
-    pub struct RtcmData {
-        message_type: Option<u16>,
-        data_length: usize,
-        data_hex: String, // Hex representation of RTCM data
-    }
-}
-make_struct_with_fields! {
-    #[derive(Debug, Clone, Serialize)]
-    pub struct ArduinoSensorData {
-        motor_1_rpm: f32,
-        motor_2_rpm: f32,
-        motor_1_tot_rotations: f32,
-        motor_2_tot_rotations: f32,
-        time_ms: u32,
-        // roll: f32,
-        // pitch: f32,
-        // yaw: f32,
-        current_motor_1_ma: f32,
-        current_motor_2_ma: f32,
-        sonar_mm: f32,
-        tof1_mm: f32,
-        tof2_mm: f32,
-        // acc_x: f32,
-        // acc_y: f32,
-        // acc_z: f32,
-    }
+#[derive(Debug, Clone, Serialize)]
+pub struct LogEntry<T> {
+    pub timestamp_ns: u64,
+    #[serde(flatten)]
+    pub data: T,
 }
 
-// Wrapper structs for CSV serialization
-#[derive(Serialize)]
-struct NmeaLog {
-    timestamp_us: u64,
-    log_type: &'static str,
-    data: NmeaSentence,
-}
-
-#[derive(Serialize)]
-struct RtcmLog {
-    timestamp_us: u64,
-    log_type: &'static str,
-    data: RtcmData,
-}
-
-#[derive(Serialize)]
-struct SensorLog {
-    timestamp_us: u64,
-    log_type: &'static str,
-    data: ArduinoSensorData,
-}
-
-
-/// Represents different types of data that can be logged
-#[derive(Debug, Clone)]
-pub enum LogData {
-    NmeaSentence(NmeaSentence),
+#[derive(Debug, Clone, Serialize)]
+pub enum LoggerPackets {
+    NmeaSentence(Nmea),
     RtcmData(RtcmData),
-    SensorData(ArduinoSensorData),
+    SensorData(SensorData),
 }
+
 
 /// Logger handle that can be cloned and sent to other threads
 #[derive(Clone)]
 pub struct Logger {
-    tx: Sender<LogData>,
+    tx: Sender<LoggerPackets>,
 }
 
 impl Logger {
     /// Create a new logger that writes to the specified file
     pub fn new(log_file_path: PathBuf) -> std::io::Result<Self> {
-        let (tx, rx) = mpsc::channel::<LogData>();
+        let (tx, rx) = mpsc::channel::<LoggerPackets>();
 
         // Spawn logging thread
         thread::spawn(move || {
@@ -117,11 +53,8 @@ impl Logger {
     }
 
     /// Log a NMEA sentence
-    pub fn log_nmea(&self, sentence: &str) {
-        let data = NmeaSentence {
-            sentence: sentence.trim().to_string(),
-        };
-        let _ = self.tx.send(LogData::NmeaSentence(data));
+    pub fn log_nmea(&self, parser: Nmea) {
+        let _ = self.tx.send(LoggerPackets::NmeaSentence(parser));
     }
 
     /// Log RTCM correction data
@@ -133,61 +66,62 @@ impl Logger {
             data_length: data.len(),
             data_hex: data_hex,
         };
-        let _ = self.tx.send(LogData::RtcmData(data));
+        let _ = self.tx.send(LoggerPackets::RtcmData(data));
     }
 
     pub fn log_sensor_data(&self, data: &SensorData) {
-        let data = ArduinoSensorData {
-            motor_1_rpm: data.motor_1_rpm,
-            motor_2_rpm: data.motor_2_rpm,
-            motor_1_tot_rotations: data.motor_1_tot_rotations,
-            motor_2_tot_rotations: data.motor_2_tot_rotations,
-            time_ms: data.time_ms,
-            // roll: data.roll,
-            // pitch: data.pitch,
-            // yaw: data.yaw,
-            current_motor_1_ma: data.current_motor_1_ma,
-            current_motor_2_ma: data.current_motor_2_ma,    
-            sonar_mm: data.sonar_mm,
-            tof1_mm: data.tof1_mm,
-            tof2_mm: data.tof2_mm,
-        };
-
-        let _ = self.tx.send(LogData::SensorData(data));
+        let _ = self.tx.send(LoggerPackets::SensorData(data.clone()));
     }
 }
 
 /// Main logging thread function
-fn run_logger(rx: Receiver<LogData>, log_file_path: PathBuf) -> std::io::Result<()> {
-    let file = File::create(&log_file_path)?;
-    let mut writer = Writer::from_writer(file);
+fn run_logger(rx: Receiver<LoggerPackets>, log_file_path: PathBuf) -> std::io::Result<()> {
+    // Create writers for different data types
+    let file_stem = log_file_path.file_stem().unwrap_or_default().to_string_lossy();
+    let extension = log_file_path.extension().unwrap_or_default().to_string_lossy();
+    let parent = log_file_path.parent().unwrap_or(std::path::Path::new("."));
 
-    // Write CSV header
-    let sensor_data_fields = ArduinoSensorData::field_names();
-    let nmea_fields = NmeaSentence::field_names();
-    let rtcm_fields = RtcmData::field_names();
+    let make_path = |suffix: &str| -> PathBuf {
+        let mut name = file_stem.to_string();
+        name.push_str(suffix);
+        if !extension.is_empty() {
+            name.push('.');
+            name.push_str(&extension);
+        }
+        parent.join(name)
+    };
 
-    let mut fields = vec![
-        "timestamp_ns".to_string(),
-        "log_type".to_string(),
-    ];
-    fields.extend(nmea_fields);
-    fields.extend(rtcm_fields);
-    fields.extend(sensor_data_fields);
+    let gps_path = make_path("_gps");
+    let rtcm_path = make_path("_rtcm");
+    let sensor_path = make_path("_sensor");
 
-    writer.write_record(&fields)?;
-
-    writer.flush()?;
+    let mut gps_writer = Writer::from_path(gps_path)?;
+    let mut rtcm_writer = Writer::from_path(rtcm_path)?;
+    let mut sensor_writer = Writer::from_path(sensor_path)?;
 
     loop {
         match rx.recv() {
-            Ok(data) => {
-                println!("Logging data: {:?}", data);
-                write_log_entry(&mut writer, data)?;
-                writer.flush()?;
+            Ok(packet) => {
+                let timestamp_ns = get_timestamp_nanos();
+                match packet {
+                    LoggerPackets::NmeaSentence(data) => {
+                        let entry = LogEntry { timestamp_ns, data };
+                        gps_writer.serialize(entry)?;
+                        gps_writer.flush()?;
+                    }
+                    LoggerPackets::RtcmData(data) => {
+                        let entry = LogEntry { timestamp_ns, data };
+                        rtcm_writer.serialize(entry)?;
+                        rtcm_writer.flush()?;
+                    }
+                    LoggerPackets::SensorData(data) => {
+                        let entry = LogEntry { timestamp_ns, data };
+                        sensor_writer.serialize(entry)?;
+                        sensor_writer.flush()?;
+                    }
+                }
             }
             Err(err) => {
-
                 // Channel closed, exit logging thread
                 eprintln!("Logging thread error: {}", err);
                 break;
@@ -195,49 +129,6 @@ fn run_logger(rx: Receiver<LogData>, log_file_path: PathBuf) -> std::io::Result<
         }
     }
 
-    Ok(())
-}
-
-/// Write a single log entry to the CSV file
-fn write_log_entry(writer: &mut Writer<File>, data: LogData) -> csv::Result<()> {
-    let timestamp = get_timestamp_nanos();
-    match data {
-        LogData::NmeaSentence(sentence) => {
-            let record = vec![
-                timestamp.to_string(),
-                "NMEA".to_string(),
-                sentence.sentence,
-            ];
-            writer.write_record(record)?;
-        }
-        LogData::RtcmData(rtcm) => {
-            let record = vec![
-                timestamp.to_string(),
-                "RTCM".to_string(),
-                rtcm.message_type.map_or(String::new(), |m| m.to_string()),
-                rtcm.data_length.to_string(),
-                rtcm.data_hex,
-            ];
-            writer.write_record(record)?;
-        }
-        LogData::SensorData(sensor) => {
-            let record = vec![
-                timestamp.to_string(),
-                "ARDUINO".to_string(),
-                sensor.motor_1_rpm.to_string(),
-                sensor.motor_2_rpm.to_string(),
-                sensor.motor_1_tot_rotations.to_string(),
-                sensor.motor_2_tot_rotations.to_string(),
-                sensor.time_ms.to_string(),
-                sensor.current_motor_1_ma.to_string(),
-                sensor.current_motor_2_ma.to_string(),
-                sensor.sonar_mm.to_string(),
-                sensor.tof1_mm.to_string(),
-                sensor.tof2_mm.to_string(),
-            ];
-            writer.write_record(record)?;
-        }
-    }
     Ok(())
 }
 

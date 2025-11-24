@@ -5,6 +5,7 @@ pub fn build_parser() -> Nmea {
     parser
 }
 
+/// Modifies the Nmea parser in place by parsing the given input sentence
 pub fn parse_nmea_sentence(parser: &mut Nmea, input: &str) -> () {
     let _ = parser.parse(input);
 }

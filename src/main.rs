@@ -65,7 +65,6 @@ fn main() -> std::io::Result<()> {
     }
 
     loop {
-
         // Read from GPS serial port, if connected
         if gps_connected {
             let gps_serial_data = gps_port.as_mut().unwrap().read_sentences();
@@ -75,8 +74,8 @@ fn main() -> std::io::Result<()> {
             let sentences = gps_serial_data.unwrap();
             for sentence in &sentences {
                 gps::parser::parse_nmea_sentence(&mut parser, sentence);
-                logger.log_nmea(sentence);
             }
+            logger.log_nmea(parser.clone());
 
             // Write any pending NTRIP correction data to serial
             loop {
@@ -107,10 +106,8 @@ fn main() -> std::io::Result<()> {
                 continue;
             }
             let sensor_data = arduino_serial_data.unwrap();
-            if let Some(ref data) = sensor_data {
-                logger.log_sensor_data(data);
-            }
-            // display.update_arduino(&mut stdout, &sensor_data.unwrap())?;
+            logger.log_sensor_data(&sensor_data);
+            // display.update_arduino(&mut stdout, &sensor_data)?;
         };
 
     }
