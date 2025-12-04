@@ -12,7 +12,7 @@ use crate::usb_serial::SensorData;
 
 pub struct Display {
     prev_lines: u16,
-    last_gps: Option<Nmea>,
+    last_gps: Option<(Nmea, Option<String>)>,
     last_arduino: Option<SensorData>,
 }
 
@@ -36,7 +36,7 @@ impl Display {
         let mut items = Vec::new();
 
         // GPS Data
-        if let Some(parser) = &self.last_gps {
+        if let Some((parser, gga_fix_quality)) = &self.last_gps {
             let sats = parser.satellites();
             let mut avg_snr = 0u32;
             let mut count = 0u32;
@@ -47,6 +47,20 @@ impl Display {
                 }
             }
             let avg_snr_value = if count > 0 { avg_snr / count } else { 0 };
+
+            let fix_quality_str = match gga_fix_quality.as_deref() {
+                Some("0") => "Invalid",
+                Some("1") => "GPS Fix",
+                Some("2") => "DGPS Fix",
+                Some("3") => "PPS Fix",
+                Some("4") => "Fixed RTK",
+                Some("5") => "Float RTK",
+                Some("6") => "Estimated (dead reckoning)",
+                Some("7") => "Manual input mode",
+                Some("8") => "Simulation mode",
+                Some(other) => other,
+                None => "N/A",
+            };
 
             items.push(DisplayItem::Header("=== GPS DATA ===".to_string(), Color::Yellow));
             items.push(DisplayItem::Data(
@@ -71,7 +85,7 @@ impl Display {
             ));
             items.push(DisplayItem::Data(
                 "Fix Type".to_string(),
-                format!("{:?}", parser.fix_type.unwrap_or_else(|| FixType::Simulation)),
+                fix_quality_str.to_string(),
                 None,
             ));
             items.push(DisplayItem::Data(
@@ -265,8 +279,8 @@ impl Display {
         Ok(())
     }
 
-    pub fn update_gps<W: Write>(&mut self, stdout: &mut W, parser: &Nmea) -> std::io::Result<()> {
-        self.last_gps = Some(parser.clone());
+    pub fn update_gps<W: Write>(&mut self, stdout: &mut W, parser: &Nmea, gga_fix_quality: Option<String>) -> std::io::Result<()> {
+        self.last_gps = Some((parser.clone(), gga_fix_quality));
         self.render(stdout)
     }
 

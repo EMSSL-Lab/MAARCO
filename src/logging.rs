@@ -19,7 +19,7 @@ pub struct RtcmData {
 
 #[derive(Debug, Clone, Serialize)]
 pub enum LoggerPackets {
-    NmeaSentence(Nmea),
+    NmeaSentence(Nmea, Option<String>),
     RtcmData(RtcmData),
     SensorData(SensorData),
 }
@@ -29,7 +29,8 @@ pub struct GpsLogData {
     pub timestamp_ns: u64,
     pub fix_time: Option<String>,
     pub fix_date: Option<String>,
-    pub fix_type: Option<String>,
+    pub gga_fix_quality: Option<String>,
+    pub avg_snr: Option<f32>,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
     pub altitude: Option<f32>,
@@ -43,12 +44,38 @@ pub struct GpsLogData {
 }
 
 impl GpsLogData {
-    fn from_nmea(nmea: Nmea, timestamp_ns: u64) -> Self {
+    fn from_nmea(nmea: Nmea, gga_fix_quality: Option<String>, timestamp_ns: u64) -> Self {
+        let sats = nmea.satellites();
+        let mut avg_snr = 0.0;
+        let mut count = 0;
+        for sat in &sats {
+            if let Some(snr) = sat.snr() {
+                avg_snr += snr as f32;
+                count += 1;
+            }
+        }
+        let avg_snr_opt = if count > 0 { Some(avg_snr / count as f32) } else { None };
+
+        let fix_quality_str = match gga_fix_quality.as_deref() {
+            Some("0") => Some("Invalid".to_string()),
+            Some("1") => Some("GPS Fix".to_string()),
+            Some("2") => Some("DGPS".to_string()),
+            Some("3") => Some("PPS".to_string()),
+            Some("4") => Some("Fixed".to_string()),
+            Some("5") => Some("Float".to_string()),
+            Some("6") => Some("Estimated (dead reckoning)".to_string()),
+            Some("7") => Some("Manual input mode".to_string()),
+            Some("8") => Some("Simulation mode".to_string()),
+            Some(other) => Some(format!("Unknown ({})", other)),
+            None => None,
+        };
+
         GpsLogData {
             timestamp_ns,
             fix_time: nmea.fix_time.map(|t| format!("{:?}", t)),
             fix_date: nmea.fix_date.map(|d| format!("{:?}", d)),
-            fix_type: nmea.fix_type.map(|t| format!("{:?}", t)),
+            gga_fix_quality: fix_quality_str,
+            avg_snr: avg_snr_opt,
             latitude: nmea.latitude,
             longitude: nmea.longitude,
             altitude: nmea.altitude,
@@ -86,8 +113,8 @@ impl Logger {
     }
 
     /// Log a NMEA sentence
-    pub fn log_nmea(&self, parser: Nmea) {
-        let _ = self.tx.send(LoggerPackets::NmeaSentence(parser));
+    pub fn log_nmea(&self, parser: Nmea, gga_fix_quality: Option<String>) {
+        let _ = self.tx.send(LoggerPackets::NmeaSentence(parser, gga_fix_quality));
     }
 
     /// Log RTCM correction data
@@ -138,9 +165,9 @@ fn run_logger(rx: Receiver<LoggerPackets>, log_file_path: PathBuf) -> std::io::R
         match rx.recv() {
             Ok(packet) => {
                 match packet {
-                    LoggerPackets::NmeaSentence(data) => {
+                    LoggerPackets::NmeaSentence(data, gga_fix_quality) => {
                         let timestamp_ns = get_timestamp_nanos();
-                        let gps_data = GpsLogData::from_nmea(data, timestamp_ns);
+                        let gps_data = GpsLogData::from_nmea(data, gga_fix_quality, timestamp_ns);
                         gps_writer.serialize(gps_data)?;
                         gps_writer.flush()?;
                     }

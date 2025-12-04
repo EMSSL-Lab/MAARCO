@@ -57,6 +57,7 @@ fn main() -> std::io::Result<()> {
     }
 
     let mut parser = gps::parser::build_parser();
+    let mut gga_fix_quality: Option<String> = None;
     let mut stdout = stdout();
     let mut display = display::Display::new();
 
@@ -83,10 +84,30 @@ fn main() -> std::io::Result<()> {
             }
             let sentences = gps_serial_data.unwrap();
             for sentence in &sentences {
-                gps::parser::parse_nmea_sentence(&mut parser, sentence);
-            }
-            if !sentences.is_empty() {
-                logger.log_nmea(parser.clone());
+                let mut next_parser = parser.clone();
+                gps::parser::parse_nmea_sentence(&mut next_parser, sentence);
+
+                let mut next_gga_fix_quality = gga_fix_quality.clone();
+                if sentence.contains("GGA") {
+                    // Manually parse GGA fix quality
+                    // $GPGGA,time,lat,NS,lon,EW,quality,num_sats,hdop,alt,M,sep,M,diff_age,diff_station*cs
+                    let parts: Vec<&str> = sentence.split(',').collect();
+                    if parts.len() > 6 {
+                        next_gga_fix_quality = Some(parts[6].to_string());
+                    }
+                }
+
+                // If the time has changed, it means we've started a new epoch.
+                // We should log the *previous* epoch's fully accumulated data.
+                if next_parser.fix_time != parser.fix_time {
+                    if parser.fix_time.is_some() {
+                        logger.log_nmea(parser.clone(), gga_fix_quality.clone());
+                        display.update_gps(&mut stdout, &parser, gga_fix_quality.clone())?;
+                    }
+                }
+                
+                parser = next_parser;
+                gga_fix_quality = next_gga_fix_quality;
             }
 
             // Write any pending NTRIP correction data to serial
@@ -105,10 +126,6 @@ fn main() -> std::io::Result<()> {
                         break;
                     }
                 }
-            }
-
-            if !sentences.is_empty() {
-                display.update_gps(&mut stdout, &parser)?;
             }
         }
 
