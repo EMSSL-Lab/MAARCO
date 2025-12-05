@@ -3,3 +3,6 @@
 
 # Ignore generated log files:
 logs/
+
+# Ignore exported files (e.g. to google earth):
+exports/

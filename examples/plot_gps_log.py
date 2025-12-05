@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import csv
 import argparse
+import json
 
 @dataclass
 class ParsedGpsData:
@@ -64,7 +65,7 @@ class CsvGpsParser:
         ref_lon = self.data[0].long
         cos_lat = math.cos(ref_lat * math.pi / 180)
         
-        # Convert to m relative to first point
+        # Convert to cm relative to first point
         easts = [(lon - ref_lon) * 111320 * cos_lat * 100 for lon in lons]  # cm
         norths = [(lat - ref_lat) * 111320 * 100 for lat in lats]  # cm
         
@@ -153,9 +154,63 @@ class CsvGpsParser:
         ax.legend(handles=legend_elements, loc='upper right')
         plt.show()
 
+    def export_to_kml(self, output_path: Path):
+        if not self.data:
+            print("No data to export")
+            return
+
+        # Color map with ABGR hex values for KML (alpha ff for opaque)
+        color_map_abgr = {
+            'GPS Fix': 'ff0000ff',  # red
+            'DGPS': 'ffff0000',     # blue
+            'Fixed': 'ff00ff00',    # green
+            'Float': 'ff00ffff',    # yellow
+            'Invalid': 'ff000000',  # black
+            'Simulation mode': 'ffff00ff'  # magenta
+        }
+
+        # Start building KML string
+        kml = '<?xml version="1.0" encoding="UTF-8"?>\n'
+        kml += '<kml xmlns="http://www.opengis.net/kml/2.2">\n'
+        kml += '<Document>\n'
+        kml += f'    <name>{self.file_path.name}</name>\n'
+
+        # Define styles for each fix quality
+        unique_qualities = set(d.fix_quality for d in self.data)
+        for q in unique_qualities:
+            color = color_map_abgr.get(q, 'ff000000')  # default black
+            kml += f'    <Style id="{q.replace(" ", "_")}">\n'
+            kml += '        <IconStyle>\n'
+            kml += f'            <color>{color}</color>\n'
+            kml += '            <scale>1.0</scale>\n'
+            kml += '            <Icon>\n'
+            kml += '                <href>http://maps.google.com/mapfiles/kml/shapes/shaded_dot.png</href>\n'
+            kml += '            </Icon>\n'
+            kml += '        </IconStyle>\n'
+            kml += '    </Style>\n'
+
+        # Add placemarks
+        for d in self.data:
+            style_id = d.fix_quality.replace(" ", "_")
+            kml += '    <Placemark>\n'
+            kml += f'        <description>Altitude: {d.alt} m\nFix Quality: {d.fix_quality}\nTimestamp: {d.timestamp}</description>\n'
+            kml += f'        <styleUrl>#{style_id}</styleUrl>\n'
+            kml += '        <Point>\n'
+            kml += f'            <coordinates>{d.long},{d.lat},{d.alt}</coordinates>\n'
+            kml += '        </Point>\n'
+            kml += '    </Placemark>\n'
+
+        kml += '</Document>\n'
+        kml += '</kml>'
+
+        with output_path.open('w') as f:
+            f.write(kml)
+        print(f"Exported to {output_path}")
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Plot GPS log data')
     parser.add_argument('file', type=Path, help='Path to the GPS CSV log file')
+    parser.add_argument('--kml', type=Path, help='Path to export KML file for Google Earth', default=None)
     args = parser.parse_args()
     if not args.file.exists():
         print(f"File {args.file} does not exist")
@@ -164,3 +219,5 @@ if __name__ == "__main__":
     parser.parse_csv()
     parser.plot_deviation_map()
     parser.plot_3d_deviation_map()
+    if args.kml:
+        parser.export_to_kml(args.kml)
