@@ -2,24 +2,22 @@
 use clap::Parser;
 use crossterm::execute;
 use std::io::{Write, stdout};
-use std::sync::mpsc::{self, TryRecvError};
 use std::path::PathBuf;
-
+use std::sync::mpsc::{self, TryRecvError};
 
 mod display;
 mod gps;
-mod ntrip;
 mod gps_serial;
 mod logging;
+mod ntrip;
 mod usb_serial;
-
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
     /// NTRIP mountpoint (e.g., MOUNTPOINT)
     #[arg(long)]
-    ntrip_mount: Option<String>,  // E.g. "VMAX-LAND-1"
+    ntrip_mount: Option<String>, // E.g. "VMAX-LAND-1"
     /// GPS serial port path (e.g., /dev/ttyUSB0)
     #[arg(long, default_value = "/dev/ttyUSB0")]
     gps_port: PathBuf,
@@ -105,7 +103,7 @@ fn main() -> std::io::Result<()> {
                         display.update_gps(&mut stdout, &parser, gga_fix_quality.clone())?;
                     }
                 }
-                
+
                 parser = next_parser;
                 gga_fix_quality = next_gga_fix_quality;
             }
@@ -142,6 +140,5 @@ fn main() -> std::io::Result<()> {
                 display.update_arduino(&mut stdout, &sensor_data)?;
             }
         };
-
     }
 }

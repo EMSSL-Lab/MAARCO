@@ -1,4 +1,5 @@
 // src/logging.rs
+use crate::usb_serial::SensorData;
 use csv::Writer;
 use nmea::Nmea;
 use serde::Serialize;
@@ -6,8 +7,6 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::usb_serial::SensorData;
-
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RtcmData {
@@ -33,7 +32,7 @@ pub struct GpsLogData {
     pub avg_snr: Option<f32>,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
-    pub altitude: Option<f32>,
+    pub altitude_m: Option<f32>,
     pub speed_over_ground: Option<f32>,
     pub true_course: Option<f32>,
     pub num_of_fix_satellites: Option<u32>,
@@ -54,7 +53,11 @@ impl GpsLogData {
                 count += 1;
             }
         }
-        let avg_snr_opt = if count > 0 { Some(avg_snr / count as f32) } else { None };
+        let avg_snr_opt = if count > 0 {
+            Some(avg_snr / count as f32)
+        } else {
+            None
+        };
 
         let fix_quality_str = match gga_fix_quality.as_deref() {
             Some("0") => Some("Invalid".to_string()),
@@ -78,7 +81,7 @@ impl GpsLogData {
             avg_snr: avg_snr_opt,
             latitude: nmea.latitude,
             longitude: nmea.longitude,
-            altitude: nmea.altitude,
+            altitude_m: nmea.altitude,
             speed_over_ground: nmea.speed_over_ground,
             true_course: nmea.true_course,
             num_of_fix_satellites: nmea.num_of_fix_satellites,
@@ -89,7 +92,6 @@ impl GpsLogData {
         }
     }
 }
-
 
 /// Logger handle that can be cloned and sent to other threads
 #[derive(Clone)]
@@ -114,7 +116,9 @@ impl Logger {
 
     /// Log a NMEA sentence
     pub fn log_nmea(&self, parser: Nmea, gga_fix_quality: Option<String>) {
-        let _ = self.tx.send(LoggerPackets::NmeaSentence(parser, gga_fix_quality));
+        let _ = self
+            .tx
+            .send(LoggerPackets::NmeaSentence(parser, gga_fix_quality));
     }
 
     /// Log RTCM correction data
@@ -139,8 +143,14 @@ impl Logger {
 /// Main logging thread function
 fn run_logger(rx: Receiver<LoggerPackets>, log_file_path: PathBuf) -> std::io::Result<()> {
     // Create writers for different data types
-    let file_stem = log_file_path.file_stem().unwrap_or_default().to_string_lossy();
-    let extension = log_file_path.extension().unwrap_or_default().to_string_lossy();
+    let file_stem = log_file_path
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let extension = log_file_path
+        .extension()
+        .unwrap_or_default()
+        .to_string_lossy();
     let parent = log_file_path.parent().unwrap_or(std::path::Path::new("."));
 
     let make_path = |suffix: &str| -> PathBuf {
@@ -163,24 +173,22 @@ fn run_logger(rx: Receiver<LoggerPackets>, log_file_path: PathBuf) -> std::io::R
 
     loop {
         match rx.recv() {
-            Ok(packet) => {
-                match packet {
-                    LoggerPackets::NmeaSentence(data, gga_fix_quality) => {
-                        let timestamp_ns = get_timestamp_nanos();
-                        let gps_data = GpsLogData::from_nmea(data, gga_fix_quality, timestamp_ns);
-                        gps_writer.serialize(gps_data)?;
-                        gps_writer.flush()?;
-                    }
-                    LoggerPackets::RtcmData(data) => {
-                        rtcm_writer.serialize(data)?;
-                        rtcm_writer.flush()?;
-                    }
-                    LoggerPackets::SensorData(data) => {
-                        sensor_writer.serialize(data)?;
-                        sensor_writer.flush()?;
-                    }
+            Ok(packet) => match packet {
+                LoggerPackets::NmeaSentence(data, gga_fix_quality) => {
+                    let timestamp_ns = get_timestamp_nanos();
+                    let gps_data = GpsLogData::from_nmea(data, gga_fix_quality, timestamp_ns);
+                    gps_writer.serialize(gps_data)?;
+                    gps_writer.flush()?;
                 }
-            }
+                LoggerPackets::RtcmData(data) => {
+                    rtcm_writer.serialize(data)?;
+                    rtcm_writer.flush()?;
+                }
+                LoggerPackets::SensorData(data) => {
+                    sensor_writer.serialize(data)?;
+                    sensor_writer.flush()?;
+                }
+            },
             Err(err) => {
                 // Channel closed, exit logging thread
                 eprintln!("Logging thread error: {}", err);

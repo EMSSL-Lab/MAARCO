@@ -1,1 +1,5 @@
+# Ignore rust build artifacts:
 /target
+
+# Ignore generated log files:
+logs/

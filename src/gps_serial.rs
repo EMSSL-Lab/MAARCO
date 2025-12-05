@@ -5,7 +5,6 @@ use std::io::Read;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-
 #[derive(Debug)]
 pub struct SerialReader {
     gps_port: TTYPort,
@@ -27,7 +26,11 @@ pub fn open_port(port: PathBuf) -> Result<SerialReader, Error> {
             })
         }
         Err(e) => {
-            eprintln!("Failed to open \"{}\". Error: {}", port.to_string_lossy(), e);
+            eprintln!(
+                "Failed to open \"{}\". Error: {}",
+                port.to_string_lossy(),
+                e
+            );
             Err(e)
         }
     }
@@ -69,9 +72,7 @@ impl SerialReader {
                 // No data read
                 Ok(sentences)
             }
-            Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {
-                Ok(sentences)
-            }
+            Err(ref e) if e.kind() == io::ErrorKind::TimedOut => Ok(sentences),
             Err(e) => {
                 // eprintln!("Error reading from port: {:?}", e);
                 Err(Error::from(e))

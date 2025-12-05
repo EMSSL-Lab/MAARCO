@@ -6,7 +6,7 @@ use crossterm::{
 };
 use std::io::Write;
 
-use nmea::{Nmea, sentences::FixType};
+use nmea::Nmea;
 
 use crate::usb_serial::SensorData;
 
@@ -24,7 +24,7 @@ enum DisplayItem {
 
 impl Display {
     pub fn new() -> Self {
-        Self { 
+        Self {
             prev_lines: 0,
             last_gps: None,
             last_arduino: None,
@@ -62,7 +62,10 @@ impl Display {
                 None => "N/A",
             };
 
-            items.push(DisplayItem::Header("=== GPS DATA ===".to_string(), Color::Yellow));
+            items.push(DisplayItem::Header(
+                "=== GPS DATA ===".to_string(),
+                Color::Yellow,
+            ));
             items.push(DisplayItem::Data(
                 "Timestamp".to_string(),
                 format!("{:?}", parser.fix_time.unwrap_or_default()),
@@ -98,27 +101,47 @@ impl Display {
                 format!("{:?}", parser.num_of_fix_satellites.unwrap_or_default()),
                 None,
             ));
-            items.push(DisplayItem::Data("HDOP".to_string(), format!("{:?}", parser.hdop.unwrap_or_default()), None));
-            items.push(DisplayItem::Data("VDOP".to_string(), format!("{:?}", parser.vdop.unwrap_or_default()), None));
-            items.push(DisplayItem::Data("PDOP".to_string(), format!("{:?}", parser.pdop.unwrap_or_default()), None));
+            items.push(DisplayItem::Data(
+                "HDOP".to_string(),
+                format!("{:?}", parser.hdop.unwrap_or_default()),
+                None,
+            ));
+            items.push(DisplayItem::Data(
+                "VDOP".to_string(),
+                format!("{:?}", parser.vdop.unwrap_or_default()),
+                None,
+            ));
+            items.push(DisplayItem::Data(
+                "PDOP".to_string(),
+                format!("{:?}", parser.pdop.unwrap_or_default()),
+                None,
+            ));
             items.push(DisplayItem::Data(
                 "Avg SNR".to_string(),
                 format!("{:?}", avg_snr_value),
                 Some("db-Hz".to_string()),
             ));
-            items.push(DisplayItem::Divider("=================".to_string(), Color::Yellow));
+            items.push(DisplayItem::Divider(
+                "=================".to_string(),
+                Color::Yellow,
+            ));
         }
 
         // Arduino Data
         if let Some(arduino_data) = &self.last_arduino {
             let fmt_f32 = |val: Option<f32>| -> String {
-                val.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "N/A".to_string())
+                val.map(|v| format!("{:.2}", v))
+                    .unwrap_or_else(|| "N/A".to_string())
             };
             let fmt_u32 = |val: Option<u32>| -> String {
-                val.map(|v| format!("{}", v)).unwrap_or_else(|| "N/A".to_string())
+                val.map(|v| format!("{}", v))
+                    .unwrap_or_else(|| "N/A".to_string())
             };
 
-            items.push(DisplayItem::Header("=== Arduino Sensor Data ===".to_string(), Color::Yellow));
+            items.push(DisplayItem::Header(
+                "=== Arduino Sensor Data ===".to_string(),
+                Color::Yellow,
+            ));
             items.push(DisplayItem::Data(
                 "Time".to_string(),
                 fmt_u32(arduino_data.time_ms),
@@ -131,8 +154,8 @@ impl Display {
             ));
             items.push(DisplayItem::Data(
                 "Current Left".to_string(),
-                fmt_f32(arduino_data.current_left_a),
-                Some("A".to_string()),
+                fmt_f32(arduino_data.current_left_ma),
+                Some("mA".to_string()),
             ));
             items.push(DisplayItem::Data(
                 "Voltage Right".to_string(),
@@ -141,8 +164,8 @@ impl Display {
             ));
             items.push(DisplayItem::Data(
                 "Current Right".to_string(),
-                fmt_f32(arduino_data.current_right_a),
-                Some("A".to_string()),
+                fmt_f32(arduino_data.current_right_ma),
+                Some("mA".to_string()),
             ));
             items.push(DisplayItem::Data(
                 "Motor Current Left".to_string(),
@@ -279,7 +302,12 @@ impl Display {
         Ok(())
     }
 
-    pub fn update_gps<W: Write>(&mut self, stdout: &mut W, parser: &Nmea, gga_fix_quality: Option<String>) -> std::io::Result<()> {
+    pub fn update_gps<W: Write>(
+        &mut self,
+        stdout: &mut W,
+        parser: &Nmea,
+        gga_fix_quality: Option<String>,
+    ) -> std::io::Result<()> {
         self.last_gps = Some((parser.clone(), gga_fix_quality));
         self.render(stdout)
     }

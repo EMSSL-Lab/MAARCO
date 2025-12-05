@@ -1,8 +1,8 @@
 # /// script
 # requires-python = ">=3.13"
 # dependencies = [
-#     "matplotlib",
-#     "numpy",
+# "matplotlib",
+# "numpy",
 # ]
 # ///
 from pathlib import Path
@@ -16,6 +16,7 @@ import argparse
 
 @dataclass
 class ParsedGpsData:
+    timestamp: int
     lat: float
     long: float
     alt: float
@@ -32,16 +33,17 @@ class CsvGpsParser:
                 reader = csv.DictReader(csvfile)
                 for row in reader:
                     # Check if we have valid lat/long/alt
-                    if not row.get('latitude') or not row.get('longitude'):
+                    if not row.get('latitude') or not row.get('longitude') or not row.get('timestamp_ns'):
                         continue
                     
                     try:
+                        timestamp = int(row['timestamp_ns'])
                         lat = float(row['latitude'])
                         long = float(row['longitude'])
                         alt = float(row.get('altitude', 0.0))
                         fix_quality = row.get('gga_fix_quality', 'Invalid')
                         
-                        self.data.append(ParsedGpsData(lat, long, alt, fix_quality))
+                        self.data.append(ParsedGpsData(timestamp, lat, long, alt, fix_quality))
                     except ValueError:
                         continue
                         
@@ -57,13 +59,14 @@ class CsvGpsParser:
         lons = [d.long for d in self.data]
         qualities = [d.fix_quality for d in self.data]
         
-        mean_lat = np.mean(lats)
-        mean_lon = np.mean(lons)
-        cos_lat = math.cos(mean_lat * math.pi / 180)
+        # Use first data point as reference
+        ref_lat = self.data[0].lat
+        ref_lon = self.data[0].long
+        cos_lat = math.cos(ref_lat * math.pi / 180)
         
-        # Convert to cm relative
-        easts = [(lon - mean_lon) * 111320 * cos_lat * 100 for lon in lons]  # cm
-        norths = [(lat - mean_lat) * 111320 * 100 for lat in lats]  # cm
+        # Convert to m relative to first point
+        easts = [(lon - ref_lon) * 111320 * cos_lat * 100 for lon in lons]  # cm
+        norths = [(lat - ref_lat) * 111320 * 100 for lat in lats]  # cm
         
         # Colors
         # Mapping based on src/logging.rs
@@ -80,10 +83,12 @@ class CsvGpsParser:
         
         # Plot
         plt.figure(figsize=(10, 10))
+        # Add line connecting points in chronological order
+        plt.plot(easts, norths, color='gray', alpha=0.5, linewidth=1)
         plt.scatter(easts, norths, c=colors, alpha=0.7)
         plt.xlabel('East (cm)')
         plt.ylabel('North (cm)')
-        plt.title(f'Deviation Map "{self.file_path.name}" above ground')
+        plt.title(f'Deviation Map "{self.file_path.name}" relative to first point')
         plt.grid(True)
         
         # Legend
@@ -103,18 +108,17 @@ class CsvGpsParser:
             
         lats = [d.lat for d in self.data]
         lons = [d.long for d in self.data]
-        alts = [d.alt for d in self.data]
+        ups = [d.alt for d in self.data]
         qualities = [d.fix_quality for d in self.data]
         
-        mean_lat = np.mean(lats)
-        mean_lon = np.mean(lons)
-        mean_alt = np.mean(alts)
-        cos_lat = math.cos(mean_lat * math.pi / 180)
+        # Use first data point as reference
+        ref_lat = self.data[0].lat
+        ref_lon = self.data[0].long
+        cos_lat = math.cos(ref_lat * math.pi / 180)
         
-        # Convert to cm relative
-        easts = [(lon - mean_lon) * 111320 * cos_lat * 100 for lon in lons]  # cm
-        norths = [(lat - mean_lat) * 111320 * 100 for lat in lats]  # cm
-        ups = [(alt - mean_alt) * 100 for alt in alts]  # cm
+        # Convert to m relative to first point
+        easts = [(lon - ref_lon) * 111320 * cos_lat for lon in lons]  # m
+        norths = [(lat - ref_lat) * 111320 for lat in lats]  # m
         
         # Colors
         color_map = {
@@ -131,11 +135,13 @@ class CsvGpsParser:
         # Plot
         fig = plt.figure(figsize=(10, 10))
         ax = fig.add_subplot(projection='3d')
+        # Add line connecting points in chronological order
+        ax.plot(easts, norths, ups, color='gray', alpha=0.5, linewidth=1)
         ax.scatter(easts, norths, ups, c=colors, alpha=0.7)
-        ax.set_xlabel('East (cm)')
-        ax.set_ylabel('North (cm)')
-        ax.set_zlabel('Up (cm)')
-        ax.set_title(f'3D Deviation Map of "{self.file_path.name}" above ground')
+        ax.set_xlabel('East (m)')
+        ax.set_ylabel('North (m)')
+        ax.set_zlabel('Up (m)')
+        ax.set_title(f'3D Deviation Map of "{self.file_path.name}" relative to first point')
         
         # Legend
         legend_elements = [
@@ -151,11 +157,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Plot GPS log data')
     parser.add_argument('file', type=Path, help='Path to the GPS CSV log file')
     args = parser.parse_args()
-
     if not args.file.exists():
         print(f"File {args.file} does not exist")
         exit(1)
-
     parser = CsvGpsParser(args.file)
     parser.parse_csv()
     parser.plot_deviation_map()
