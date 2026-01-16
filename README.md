@@ -37,11 +37,31 @@ To install Rust, follow the instructions at [rustup.rs](https://rustup.rs/).
 
 Now, if you want to run the main application on the Raspberry Pi, you would need to compile the code for the ARM architecture. You can do this by setting up a cross-compilation environment. It is highly recommended to use your computer for cross compiling, as compiling directly on the Raspberry Pi can be *very* slow.
 
-You can cross compile via cross and Docker - `docker build -t maarco-aarch64-udev .`, and then: `cross build --target aarch64-unknown-linux-gnu`, and then copy the binary (from `target/`) to the Pi Zero 2W's `target/` folder.
+You can cross compile via cargo:
 
-4. Finally, run the application:
+1. First, install the ARM target:
     ```bash
-    cargo run --release -- --ntrip-mount MOUNTPOINT --log-file logs/test_1.csv
+    rustup target add aarch64-unknown-linux-gnu
+    ```
+   
+2. Next, install the necessary linker. On Ubuntu, you can do this via:
+    ```bash
+      sudo apt-get install gcc-aarch64-linux-gnu
+      ```
+3. Now, you can build the project for the Pi Zero 2W:
+    ```bash
+    cargo build --target aarch64-unknown-linux-gnu --release
+      ```
+
+4. You should now have a binary located at `target/aarch64-unknown-linux-gnu/release/maarco`. You should copy this binary to the Raspberry Pi, e.g. via
+`scp`:
+```bash
+scp target/aarch64-unknown-linux-gnu/release/maarco pi4b@<RASPBERRY_PI_IP_ADDRESS>:~/
+```
+
+5. Finally, run the application on the Raspberry Pi:
+    ```bash
+    ./maarco --ntrip-mount MOUNTPOINT --log-file logs/test_1.csv
     ```
 
 Replace `MOUNTPOINT` with your actual NTRIP mount point. If you don't have one, you can omit the `--ntrip-mount` argument, and the application will run without NTRIP support (so you will not get RTK corrections).
