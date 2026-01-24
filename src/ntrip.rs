@@ -1,6 +1,6 @@
 // src/ntrip.rs
 use base64::{Engine as _, engine::general_purpose};
-use std::io::{self, BufRead, BufReader, ErrorKind, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::sync::mpsc::Sender;
 use std::thread::{self};
@@ -92,7 +92,7 @@ pub fn connect_rtk2go_ntrip(tx: Sender<NTRIPMessage>, mountpoint: &str) -> () {
 
                 let _ = tx
                     .send(NTRIPMessage::Rtcm(buf[0..n].to_vec()))
-                    .map_err(|e| io::Error::new(ErrorKind::Other, e));
+                    .map_err(io::Error::other);
             }
 
             Err(_) => {

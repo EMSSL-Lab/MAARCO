@@ -1,4 +1,3 @@
-use serialport;
 use serialport::Error;
 use serialport::TTYPort;
 use std::io::Read;
@@ -21,7 +20,7 @@ pub fn open_port(port: PathBuf) -> Result<SerialReader, Error> {
         Ok(gps_port) => {
             println!("Successfully opened port {}", port.to_string_lossy());
             Ok(SerialReader {
-                gps_port: gps_port,
+                gps_port,
                 gps_buffer: String::new(),
             })
         }

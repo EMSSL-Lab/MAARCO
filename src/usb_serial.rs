@@ -1,5 +1,4 @@
 use serde::Serialize;
-use serialport;
 use serialport::Error;
 use serialport::TTYPort;
 use std::io::{self, BufReader, Read, Write};
@@ -7,6 +6,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize)]
+#[derive(Default)]
 pub struct SensorData {
     #[serde(skip_deserializing)]
     pub timestamp_ns: u64,
@@ -31,32 +31,6 @@ pub struct SensorData {
     pub rotations_right: Option<f32>,
 }
 
-impl Default for SensorData {
-    fn default() -> Self {
-        SensorData {
-            timestamp_ns: 0,
-            time_ms: None,
-            voltage_left: None,
-            current_left_ma: None,
-            voltage_right: None,
-            current_right_ma: None,
-            motor_current_left: None,
-            motor_current_right: None,
-            euler_x: None,
-            euler_y: None,
-            euler_z: None,
-            acc_lin_x: None,
-            acc_lin_y: None,
-            acc_lin_z: None,
-            sonar_mm: None,
-            tof_mm: None,
-            rpm_left: None,
-            rpm_right: None,
-            rotations_left: None,
-            rotations_right: None,
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct ArduinoSerialPort {
@@ -151,11 +125,13 @@ impl ArduinoSerialPort {
     }
 
     fn parse_sensor_data(&self, data: &str) -> SensorData {
-        let mut sensor_data = SensorData::default();
-        sensor_data.timestamp_ns = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_nanos() as u64;
+        let mut sensor_data = SensorData {
+            timestamp_ns: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("Time went backwards")
+                .as_nanos() as u64,
+            ..SensorData::default()
+        };
 
         // Remove leading comma if present (common if format is "Ard,val1,val2...")
         let clean_data = data.trim().trim_start_matches(',');
@@ -168,7 +144,7 @@ impl ArduinoSerialPort {
         // acc_lin_y, acc_lin_z, sonar_mm, tof_mm, rpm_left, rpm_right, rotations_left,
         // rotations_right
 
-        if parts.len() >= 1 {
+        if !parts.is_empty() {
             sensor_data.time_ms = parts[0].parse().ok();
         }
         if parts.len() >= 2 {

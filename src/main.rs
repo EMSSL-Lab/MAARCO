@@ -85,7 +85,6 @@ fn main() -> std::io::Result<()> {
             }
             let sentences = gps_serial_data.unwrap();
             for sentence in &sentences {
-                display.update_gps(&mut stdout, &parser, gga_fix_quality.clone(), &ntrip_status)?;
                 let mut next_parser = parser.clone();
                 gps::parser::parse_nmea_sentence(&mut next_parser, sentence);
 
@@ -101,8 +100,8 @@ fn main() -> std::io::Result<()> {
 
                 // If the time has changed, it means we've started a new epoch.
                 // We should log the *previous* epoch's fully accumulated data.
-                if next_parser.fix_time != parser.fix_time {
-                    if parser.fix_time.is_some() {
+                if next_parser.fix_time != parser.fix_time
+                    && parser.fix_time.is_some() {
                         logger.log_nmea(parser.clone(), gga_fix_quality.clone());
                         display.update_gps(
                             &mut stdout,
@@ -111,7 +110,6 @@ fn main() -> std::io::Result<()> {
                             &ntrip_status,
                         )?;
                     }
-                }
 
                 parser = next_parser;
                 gga_fix_quality = next_gga_fix_quality;

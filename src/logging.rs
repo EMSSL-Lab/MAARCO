@@ -18,7 +18,7 @@ pub struct RtcmData {
 
 #[derive(Debug, Clone, Serialize)]
 pub enum LoggerPackets {
-    NmeaSentence(Nmea, Option<String>),
+    NmeaSentence(Box<Nmea>, Option<String>),
     RtcmData(RtcmData),
     SensorData(SensorData),
 }
@@ -49,7 +49,7 @@ impl GpsLogData {
         let mut count = 0;
         for sat in &sats {
             if let Some(snr) = sat.snr() {
-                avg_snr += snr as f32;
+                avg_snr += snr;
                 count += 1;
             }
         }
@@ -118,7 +118,7 @@ impl Logger {
     pub fn log_nmea(&self, parser: Nmea, gga_fix_quality: Option<String>) {
         let _ = self
             .tx
-            .send(LoggerPackets::NmeaSentence(parser, gga_fix_quality));
+            .send(LoggerPackets::NmeaSentence(Box::new(parser), gga_fix_quality));
     }
 
     /// Log RTCM correction data
@@ -130,7 +130,7 @@ impl Logger {
             timestamp_ns,
             message_type,
             data_length: data.len(),
-            data_hex: data_hex,
+            data_hex,
         };
         let _ = self.tx.send(LoggerPackets::RtcmData(data));
     }
@@ -176,7 +176,7 @@ fn run_logger(rx: Receiver<LoggerPackets>, log_file_path: PathBuf) -> std::io::R
             Ok(packet) => match packet {
                 LoggerPackets::NmeaSentence(data, gga_fix_quality) => {
                     let timestamp_ns = get_timestamp_nanos();
-                    let gps_data = GpsLogData::from_nmea(data, gga_fix_quality, timestamp_ns);
+                    let gps_data = GpsLogData::from_nmea(*data, gga_fix_quality, timestamp_ns);
                     gps_writer.serialize(gps_data)?;
                     gps_writer.flush()?;
                 }
