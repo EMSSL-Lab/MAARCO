@@ -3,7 +3,7 @@ use clap::Parser;
 use crossterm::execute;
 use std::io::{Write, stdout};
 use std::path::PathBuf;
-use std::sync::mpsc::{self, TryRecvError};
+use std::sync::mpsc::{self};
 
 mod display;
 mod gps;
@@ -63,7 +63,7 @@ fn main() -> std::io::Result<()> {
     execute!(stdout, crossterm::cursor::SetCursorStyle::BlinkingBlock)?;
 
     // Channel for NTRIP data to write to serial
-    let (tx, rx) = mpsc::channel::<Vec<u8>>();
+    let (tx, rx) = mpsc::channel::<ntrip::NTRIPMessage>();
 
     // Start NTRIP thread if configured
     if let Some(mount) = args.ntrip_mount {
@@ -72,6 +72,9 @@ fn main() -> std::io::Result<()> {
         });
         println!("Started NTRIP thread");
     }
+
+    // NTRIP status string. This gets updated when we receive messages from the NTRIP thread.
+    let mut ntrip_status: String = String::from("No connection");
 
     loop {
         // Read from GPS serial port, if connected
@@ -82,6 +85,7 @@ fn main() -> std::io::Result<()> {
             }
             let sentences = gps_serial_data.unwrap();
             for sentence in &sentences {
+                display.update_gps(&mut stdout, &parser, gga_fix_quality.clone(), &ntrip_status)?;
                 let mut next_parser = parser.clone();
                 gps::parser::parse_nmea_sentence(&mut next_parser, sentence);
 
@@ -100,7 +104,12 @@ fn main() -> std::io::Result<()> {
                 if next_parser.fix_time != parser.fix_time {
                     if parser.fix_time.is_some() {
                         logger.log_nmea(parser.clone(), gga_fix_quality.clone());
-                        display.update_gps(&mut stdout, &parser, gga_fix_quality.clone())?;
+                        display.update_gps(
+                            &mut stdout,
+                            &parser,
+                            gga_fix_quality.clone(),
+                            &ntrip_status,
+                        )?;
                     }
                 }
 
@@ -109,20 +118,12 @@ fn main() -> std::io::Result<()> {
             }
 
             // Write any pending NTRIP correction data to serial
-            loop {
-                match rx.try_recv() {
-                    Ok(data) => {
-                        // println!("Writing {} bytes of NTRIP data to serial", data.len());
-                        // Log RTCM data
-                        logger.log_rtcm(&data);
-                        gps_port.as_mut().unwrap().write_all(&data)?;
-                        gps_port.as_mut().unwrap().flush()?;
-                    }
-                    Err(TryRecvError::Empty) => break,
-                    Err(e) => {
-                        eprintln!("Channel error: {:?}", e);
-                        break;
-                    }
+            while let Ok(msg) = rx.try_recv() {
+                ntrip_status = msg.to_string();
+                if let ntrip::NTRIPMessage::Rtcm(data) = msg {
+                    logger.log_rtcm(&data);
+                    gps_port.as_mut().unwrap().write_all(&data)?;
+                    gps_port.as_mut().unwrap().flush()?;
                 }
             }
         }

@@ -44,9 +44,9 @@ You can cross compile via cargo:
     rustup target add aarch64-unknown-linux-gnu
     ```
    
-2. Next, install the necessary linker. On Ubuntu, you can do this via:
+2. Next, install the necessary linker. On Ubuntu or [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) (you should get the Ubuntu distribution), you can do this via:
     ```bash
-      sudo apt-get install gcc-aarch64-linux-gnu
+      sudo apt-get install build-essential gcc-aarch64-linux-gnu
       ```
 3. Now, you can build the project for the Pi Zero 2W:
     ```bash
@@ -64,7 +64,16 @@ scp target/aarch64-unknown-linux-gnu/release/maarco pi4b@<RASPBERRY_PI_IP_ADDRES
     ./maarco --ntrip-mount MOUNTPOINT --log-file logs/test_1.csv
     ```
 
-Replace `MOUNTPOINT` with your actual NTRIP mount point. If you don't have one, you can omit the `--ntrip-mount` argument, and the application will run without NTRIP support (so you will not get RTK corrections).
+Replace `MOUNTPOINT` with your actual NTRIP mount point
+(the list of all NTRIP mount points can be found [here](http://rtk2go.com:2101/SNIP::STATUS)).
+
+You should typically use the `VMAX-LAND-1` mount point. This is located in [Baybrook, NC](http://rtk2go.com:2101/SNIP::BASEandUSERMAP?baseName=VMAX-LAND-1&tk=nFghcsAw9xJ3rpf6qwPE) and is good for testing if you are within 10 miles of that location.
+
+For locations further away, you should choose a mount point closer to your location, otherwise the RTK corrections will not be effective. You can browse the list of mount points in the link above to find one near you. If there are none, you should
+set up your own RTK base station (see [Base station setup](#base-station-setup) below).
+
+If you don't have one, you can omit the `--ntrip-mount` argument, and the application will run
+without NTRIP support (so you will not get RTK corrections).
 
 
 ### Running without the Pi:
@@ -85,3 +94,7 @@ Or to run a Rust example:
 ```bash
 cargo run --example file_name[no .rs]
 ```
+
+## Base station setup
+
+TODO!
