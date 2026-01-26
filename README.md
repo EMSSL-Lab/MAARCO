@@ -2,7 +2,7 @@
 
 This is the code for the MAARCO project. It involves reading GPS RTK data from a serial port, displaying it in a terminal UI, and optionally connecting to an NTRIP server for real-time corrections.
 
-We are using a Raspberry Pi Zero 2W as the main hardware platform.
+We are using a Raspberry Pi 4B as the main hardware platform.
 
 All data is also logged to a file. The file is a CSV, which you can find under `logs/`.
 
@@ -11,10 +11,24 @@ All data is also logged to a file. The file is a CSV, which you can find under `
 - `src/`: Contains the Rust source code for the project.
 - `examples/`: Contains example Python scripts for decoding log files and streaming NMEA data. Also includes some Rust code.
 - `logs/`: Directory where CSV log files are stored.
-- `field_tests/`: This is where the data from field tests is stored. The data can be decoded using the scripts in `examples/decode_log_file.py`.
+- `field_tests/`: This is where the data from field tests is stored. The data can be decoded using the scripts in `examples/plot_gps_log.py`.
 
+## Support
 
-## How to run
+This guide is written assuming that you are running Linux, or at least [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) (you should get the Ubuntu distribution). 
+
+## How to ssh into the Pi:
+
+First, you should be familiar with `ssh`. See [this guide](https://www.geeksforgeeks.org/linux-unix/ssh-command-in-linux-with-examples/) for a short introduction. Next, you need to make a WiFi hotspot so the Raspberry Pi can connect to it. The Wifi name should be `Witcher`, and the password should be `harshil1234`. Now switch on this WiFi hotspot, and make sure your computer and/or your phone is also connected to it. You should shortly see the IP address of the raspberry pi on the list of connected devices.
+
+So to ssh into the Pi, you would do:
+
+```bash
+ssh pi4b@<IP ADDRESS>
+```
+It will ask you for the password. Enter `emssl_lab`.
+
+## How to run on your computer
 
 Since this project uses both Rust and Python, ensure you have both installed. For python, you need to install [`uv`](https://docs.astral.sh/uv/getting-started/installation/) to manage dependencies.
 
@@ -25,39 +39,42 @@ To install Rust, follow the instructions at [rustup.rs](https://rustup.rs/).
    git clone https://github.com/harshil21/MAARCO.git && cd MAARCO
    ```
 
-2. Install Python dependencies:
+2. Install Python dependencies (this is for the post-processing scripts):
    ```bash
    uv sync
    ```
 
 3. Build the Rust project:
    ```bash
-    cargo build --release
-    ``` 
+   cargo build --release
+   ``` 
 
-Now, if you want to run the main application on the Raspberry Pi, you would need to compile the code for the ARM architecture. You can do this by setting up a cross-compilation environment. It is highly recommended to use your computer for cross compiling, as compiling directly on the Raspberry Pi can be *very* slow.
+## How to run on the Pi:
 
-You can cross compile via cargo:
+We want to compile this project and execute that on the Raspberry Pi. So we will actually compile the code on our computer, and then make the Pi use that binary, because compiling directly on the Raspberry Pi can be *very* slow.
 
-1. First, install the ARM target:
+So now let's set up a cross-compilation environment on our computer.
+
+You can cross compile via `cargo`:
+
+1. First, install the ARM target. This is the CPU architecture the Raspberry Pi uses:
     ```bash
     rustup target add aarch64-unknown-linux-gnu
     ```
    
-2. Next, install the necessary linker. On Ubuntu or [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) (you should get the Ubuntu distribution), you can do this via:
+2. Next, install the necessary linker (i.e. `gcc`). For Ubuntu based distributions, you can do this via:
     ```bash
-      sudo apt-get install build-essential gcc-aarch64-linux-gnu
-      ```
-3. Now, you can build the project for the Pi Zero 2W:
+    sudo apt-get install build-essential gcc-aarch64-linux-gnu
+    ```
+3. Now, you can build the project for the Raspberry Pi:
     ```bash
     cargo build --target aarch64-unknown-linux-gnu --release
-      ```
-
+    ```
 4. You should now have a binary located at `target/aarch64-unknown-linux-gnu/release/maarco`. You should copy this binary to the Raspberry Pi, e.g. via
 `scp`:
-```bash
-scp target/aarch64-unknown-linux-gnu/release/maarco pi4b@<RASPBERRY_PI_IP_ADDRESS>:~/
-```
+   ```bash
+   scp target/aarch64-unknown-linux-gnu/release/maarco pi4b@<RASPBERRY_PI_IP_ADDRESS>:~/
+   ```
 
 5. Finally, run the application on the Raspberry Pi:
     ```bash
@@ -75,18 +92,18 @@ set up your own RTK base station (see [Base station setup](#base-station-setup) 
 If you don't have one, you can omit the `--ntrip-mount` argument, and the application will run
 without NTRIP support (so you will not get RTK corrections).
 
-
 ### Running without the Pi:
 
-You can also run the application on your computer if you have a GPS device connected via USB or serial port. Just make sure to specify the correct serial port in the code (currently set to `/dev/ttyUSB0`).
+You can also run the application on your computer if you have a GPS device connected via USB or serial port. Just make sure to specify the correct serial port as a command line argument (`--gps-port`) (currently set to `/dev/ttyUSB0`). 
 
+The list of all command line arguments can be checked by running `./maarco --help`.
 
-### Running the example scripts:
+## Post processing the gps data:
 
-You can run the example Python scripts to decode log files or stream NMEA data. For example, to decode a log file:
+You can run the example Python scripts to post process the GPS data. For example, to plot the 2D, and 3D deviation map from the GPS run:
 
 ```bash
-uv run --script examples/decode_log_file.py
+uv run --script examples/plot_gps_log.py field_tests/volleyball/12_5_25/perimeter_long_rtk_fixed_gps.csv
 ```
 
 Or to run a Rust example:
