@@ -11,6 +11,7 @@ import math
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+from matplotlib.ticker import MultipleLocator
 import csv
 import argparse
 
@@ -65,8 +66,8 @@ class CsvGpsParser:
         cos_lat = math.cos(ref_lat * math.pi / 180)
         
         # Convert to cm relative to first point
-        easts = [(lon - ref_lon) * 111320 * cos_lat * 100 for lon in lons]  # cm
-        norths = [(lat - ref_lat) * 111320 * 100 for lat in lats]  # cm
+        easts = [(lon - ref_lon) * 111320 * cos_lat * 100 for lon in lons] # cm
+        norths = [(lat - ref_lat) * 111320 * 100 for lat in lats] # cm
         
         # Colors
         # Mapping based on src/logging.rs
@@ -90,6 +91,14 @@ class CsvGpsParser:
         plt.ylabel('North (cm)')
         plt.title(f'Deviation Map "{self.file_path.name}" relative to first point')
         plt.grid(True)
+        
+        # Set equal aspect ratio
+        plt.axis('equal')
+        
+        # Set tick intervals (e.g., every 20 cm for grid squares)
+        tick_interval = 60  # cm
+        plt.gca().xaxis.set_major_locator(MultipleLocator(tick_interval))
+        plt.gca().yaxis.set_major_locator(MultipleLocator(tick_interval))
         
         # Legend
         legend_elements = [
@@ -117,8 +126,8 @@ class CsvGpsParser:
         cos_lat = math.cos(ref_lat * math.pi / 180)
         
         # Convert to m relative to first point
-        easts = [(lon - ref_lon) * 111320 * cos_lat for lon in lons]  # m
-        norths = [(lat - ref_lat) * 111320 for lat in lats]  # m
+        easts = [(lon - ref_lon) * 111320 * cos_lat for lon in lons] # m
+        norths = [(lat - ref_lat) * 111320 for lat in lats] # m
         
         # Colors
         color_map = {
@@ -157,51 +166,45 @@ class CsvGpsParser:
         if not self.data:
             print("No data to export")
             return
-
         # Color map with ABGR hex values for KML (alpha ff for opaque)
         color_map_abgr = {
-            'GPS Fix': 'ff0000ff',  # red
-            'DGPS': 'ffff0000',     # blue
-            'Fixed': 'ff00ff00',    # green
-            'Float': 'ff00ffff',    # yellow
-            'Invalid': 'ff000000',  # black
-            'Simulation mode': 'ffff00ff'  # magenta
+            'GPS Fix': 'ff0000ff', # red
+            'DGPS': 'ffff0000', # blue
+            'Fixed': 'ff00ff00', # green
+            'Float': 'ff00ffff', # yellow
+            'Invalid': 'ff000000', # black
+            'Simulation mode': 'ffff00ff' # magenta
         }
-
         # Start building KML string
         kml = '<?xml version="1.0" encoding="UTF-8"?>\n'
         kml += '<kml xmlns="http://www.opengis.net/kml/2.2">\n'
         kml += '<Document>\n'
-        kml += f'    <name>{self.file_path.name}</name>\n'
-
+        kml += f' <name>{self.file_path.name}</name>\n'
         # Define styles for each fix quality
         unique_qualities = set(d.fix_quality for d in self.data)
         for q in unique_qualities:
-            color = color_map_abgr.get(q, 'ff000000')  # default black
-            kml += f'    <Style id="{q.replace(" ", "_")}">\n'
-            kml += '        <IconStyle>\n'
-            kml += f'            <color>{color}</color>\n'
-            kml += '            <scale>1.0</scale>\n'
-            kml += '            <Icon>\n'
-            kml += '                <href>http://maps.google.com/mapfiles/kml/shapes/shaded_dot.png</href>\n'
-            kml += '            </Icon>\n'
-            kml += '        </IconStyle>\n'
-            kml += '    </Style>\n'
-
+            color = color_map_abgr.get(q, 'ff000000') # default black
+            kml += f' <Style id="{q.replace(" ", "_")}">\n'
+            kml += ' <IconStyle>\n'
+            kml += f' <color>{color}</color>\n'
+            kml += ' <scale>1.0</scale>\n'
+            kml += ' <Icon>\n'
+            kml += ' <href>http://maps.google.com/mapfiles/kml/shapes/shaded_dot.png</href>\n'
+            kml += ' </Icon>\n'
+            kml += ' </IconStyle>\n'
+            kml += ' </Style>\n'
         # Add placemarks
         for d in self.data:
             style_id = d.fix_quality.replace(" ", "_")
-            kml += '    <Placemark>\n'
-            kml += f'        <description>Altitude: {d.alt} m\nFix Quality: {d.fix_quality}\nTimestamp: {d.timestamp}</description>\n'
-            kml += f'        <styleUrl>#{style_id}</styleUrl>\n'
-            kml += '        <Point>\n'
-            kml += f'            <coordinates>{d.long},{d.lat},{d.alt}</coordinates>\n'
-            kml += '        </Point>\n'
-            kml += '    </Placemark>\n'
-
+            kml += ' <Placemark>\n'
+            kml += f' <description>Altitude: {d.alt} m\nFix Quality: {d.fix_quality}\nTimestamp: {d.timestamp}</description>\n'
+            kml += f' <styleUrl>#{style_id}</styleUrl>\n'
+            kml += ' <Point>\n'
+            kml += f' <coordinates>{d.long},{d.lat},{d.alt}</coordinates>\n'
+            kml += ' </Point>\n'
+            kml += ' </Placemark>\n'
         kml += '</Document>\n'
         kml += '</kml>'
-
         with output_path.open('w') as f:
             f.write(kml)
         print(f"Exported to {output_path}")
