@@ -1,10 +1,17 @@
+[workspace]
+members = [
+    "rtkbase",
+    "ntrip",
+]
+resolver = "2"
+
 [package]
 name = "maarco"
 version = "0.1.0"
 edition = "2024"
+description = "Logging from Arduino and receiving NTRIP data via RTK2GO in Rust"
 
 [dependencies]
-base64 = "0.22.1"
 chrono = "0.4.42"
 clap = { version = "4.5.48", features = ["derive"] }
 clap_derive = "4.5.47"
@@ -15,3 +22,5 @@ eyre = "0.6.12"
 nmea = { version = "0.7.0", features = ["default", "serde"] }
 serde = "1.0.228"
 serialport = { version = "4.7.3", default-features = false }
+ntrip = { path = "ntrip" }
+rtkbase = { path = "rtkbase" }

@@ -116,9 +116,10 @@ impl Logger {
 
     /// Log a NMEA sentence
     pub fn log_nmea(&self, parser: Nmea, gga_fix_quality: Option<String>) {
-        let _ = self
-            .tx
-            .send(LoggerPackets::NmeaSentence(Box::new(parser), gga_fix_quality));
+        let _ = self.tx.send(LoggerPackets::NmeaSentence(
+            Box::new(parser),
+            gga_fix_quality,
+        ));
     }
 
     /// Log RTCM correction data
