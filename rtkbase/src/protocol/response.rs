@@ -1,4 +1,13 @@
+use crate::protocol::pair::PairResponse;
+
 use super::commands::{PQTMCfgMsgRate, PQTMCfgSvin};
+
+#[derive(Debug, Clone)]
+pub enum WireMessage {
+    PQTMMessage(PQTMResponse),
+    PairMessage(PairResponse),
+}
+
 
 /// Represents the output from the LC29H-BS device.
 #[derive(Debug, Clone)]
@@ -55,27 +64,27 @@ pub enum ResponseError {
 
 #[derive(Debug, Clone)]
 pub struct PQTMSvinStatus {
-    msg_ver: String,
+    _msg_ver: String,
     pub time_of_week: u64, // ms
     pub valid: u8,         // 0 - invalid, 1 - in-progress, 2 - valid
-    reserved1: String,
-    reserved2: String,
+    _reserved1: String,
+    _reserved2: String,
     pub observations: u32,
     pub config_duration: u32,
-    pub mean_x: u64,   // mean position in ECEF (m)
-    pub mean_y: u64,   // mean position in ECEF (m)
-    pub mean_z: u64,   // mean position in ECEF (m)
-    pub mean_acc: u32, // mean accuracy (m)
+    pub mean_x: f64,   // mean position in ECEF (m)
+    pub mean_y: f64,   // mean position in ECEF (m)
+    pub mean_z: f64,   // mean position in ECEF (m)
+    pub mean_acc: f32, // mean accuracy (m)
 }
 
 #[derive(Debug, Clone)]
 pub struct PQTMEpe {
-    msg_ver: String,
-    pub epe_north: u64, // North position error (m)
-    pub epe_east: u64,  // East position error (m)
-    pub epe_down: u64,  // Down position error (m)
-    pub epe_2d: u64,    // 2D position error (m)
-    pub epe_3d: u64,    // 3D position error (m)
+    _msg_ver: String,
+    pub epe_north: f32, // North position error (m)
+    pub epe_east: f32,  // East position error (m)
+    pub epe_down: f32,  // Down position error (m)
+    pub epe_2d: f32,    // 2D position error (m)
+    pub epe_3d: f32,    // 3D position error (m)
 }
 
 #[derive(Debug, Clone)]
@@ -115,7 +124,7 @@ impl PQTMEpe {
     where
         I: Iterator<Item = &'a str>,
     {
-        let msg_ver = it
+        let _msg_ver = it
             .next()
             .ok_or(ParseError::ParsingError("msg_ver not found"))?
             .to_string();
@@ -123,40 +132,40 @@ impl PQTMEpe {
         let epe_north_str = it
             .next()
             .ok_or(ParseError::ParsingError("epe_north not found"))?;
-        let epe_north: u64 = epe_north_str
+        let epe_north: f32 = epe_north_str
             .parse()
             .map_err(|_| ParseError::ParsingError("invalid epe_north"))?;
 
         let epe_east_str = it
             .next()
             .ok_or(ParseError::ParsingError("epe_east not found"))?;
-        let epe_east: u64 = epe_east_str
+        let epe_east: f32 = epe_east_str
             .parse()
             .map_err(|_| ParseError::ParsingError("invalid epe_east"))?;
 
         let epe_down_str = it
             .next()
             .ok_or(ParseError::ParsingError("epe_down not found"))?;
-        let epe_down: u64 = epe_down_str
+        let epe_down: f32 = epe_down_str
             .parse()
             .map_err(|_| ParseError::ParsingError("invalid epe_down"))?;
 
         let epe_2d_str = it
             .next()
             .ok_or(ParseError::ParsingError("epe_2d not found"))?;
-        let epe_2d: u64 = epe_2d_str
+        let epe_2d: f32 = epe_2d_str
             .parse()
             .map_err(|_| ParseError::ParsingError("invalid epe_2d"))?;
 
         let epe_3d_str = it
             .next()
             .ok_or(ParseError::ParsingError("epe_3d not found"))?;
-        let epe_3d: u64 = epe_3d_str
+        let epe_3d: f32 = epe_3d_str
             .parse()
             .map_err(|_| ParseError::ParsingError("invalid epe_3d"))?;
 
         Ok(PQTMEpe {
-            msg_ver,
+            _msg_ver,
             epe_north,
             epe_east,
             epe_down,
@@ -171,7 +180,7 @@ impl PQTMSvinStatus {
     where
         I: Iterator<Item = &'a str>,
     {
-        let msg_ver = it
+        let _msg_ver = it
             .next()
             .ok_or(ParseError::ParsingError("msg_ver not found"))?
             .to_string();
@@ -190,12 +199,12 @@ impl PQTMSvinStatus {
             .parse()
             .map_err(|_| ParseError::ParsingError("invalid valid"))?;
 
-        let reserved1 = it
+        let _reserved1 = it
             .next()
             .ok_or(ParseError::ParsingError("reserved1 not found"))?
             .to_string();
 
-        let reserved2 = it
+        let _reserved2 = it
             .next()
             .ok_or(ParseError::ParsingError("reserved2 not found"))?
             .to_string();
@@ -217,36 +226,36 @@ impl PQTMSvinStatus {
         let mean_x_str = it
             .next()
             .ok_or(ParseError::ParsingError("mean_x not found"))?;
-        let mean_x: u64 = mean_x_str
+        let mean_x: f64 = mean_x_str
             .parse()
             .map_err(|_| ParseError::ParsingError("invalid mean_x"))?;
 
         let mean_y_str = it
             .next()
             .ok_or(ParseError::ParsingError("mean_y not found"))?;
-        let mean_y: u64 = mean_y_str
+        let mean_y: f64 = mean_y_str
             .parse()
             .map_err(|_| ParseError::ParsingError("invalid mean_y"))?;
 
         let mean_z_str = it
             .next()
             .ok_or(ParseError::ParsingError("mean_z not found"))?;
-        let mean_z: u64 = mean_z_str
+        let mean_z: f64 = mean_z_str
             .parse()
             .map_err(|_| ParseError::ParsingError("invalid mean_z"))?;
 
         let mean_acc_str = it
             .next()
             .ok_or(ParseError::ParsingError("mean_acc not found"))?;
-        let mean_acc: u32 = mean_acc_str
+        let mean_acc: f32 = mean_acc_str
             .parse()
             .map_err(|_| ParseError::ParsingError("invalid mean_acc"))?;
         Ok(PQTMSvinStatus {
-            msg_ver,
+            _msg_ver,
             time_of_week,
             valid,
-            reserved1,
-            reserved2,
+            _reserved1,
+            _reserved2,
             observations,
             config_duration,
             mean_x,

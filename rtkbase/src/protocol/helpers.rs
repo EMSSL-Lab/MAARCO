@@ -1,4 +1,4 @@
-use crate::protocol::response::{PQTMModuleError, ParseError, ResponseError};
+use crate::protocol::response::{PQTMModuleError, ParseError};
 
 #[derive(Debug)]
 pub enum StatusField<'a> {

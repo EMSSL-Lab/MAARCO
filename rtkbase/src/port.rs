@@ -2,27 +2,30 @@ use serialport::Error;
 use serialport::TTYPort;
 use std::io::Read;
 use std::io::{self, Write};
-use std::io::{BufRead, BufReader};
+use std::io::{BufReader};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
-use std::sync::mpsc::Sender;
-use std::sync::mpsc::TryRecvError;
 use std::thread;
 use std::thread::JoinHandle;
+use std::time::Duration;
+use crate::dispatcher::Dispatcher;
+use crate::parsing::PQTMParser;
+use crate::protocol::commands::PQTMCommand;
+use crate::protocol::response::PQTMResponse;
+use crate::protocol::response::ParseError;
+use crate::protocol::response::ResponseError;
+use crate::protocol::response::WireMessage;
+use crate::protocol::pair::{PairCommand, PairResponse, PairACK, AckResult};
+use crate::protocol::sentence::Serialize;
 
-use crate::parsing;
-use crate::parsing::PqtmParser;
-use crate::protocol::PQTMCommand;
-use crate::protocol::PqtmOutput;
-
-#[derive(Debug)]
 pub struct BaseGPS {
     base_gps_port: TTYPort,
-    pqtm_receive_buffer: Option<Receiver<PqtmOutput>>,
+    stream_rx: Option<Receiver<WireMessage>>,
+    dispatcher: Dispatcher,
     stop_signal: Arc<AtomicBool>,
 }
 
@@ -31,25 +34,16 @@ impl BaseGPS {
 
     /// Starts a thread to read data from the GPS port, extracts complete NMEA sentences.
     pub fn start(&mut self) -> JoinHandle<()> {
-        let (tx, rx) = mpsc::channel();
-        self.pqtm_receive_buffer = Some(rx);
-        self.rtk_reader_thread(tx)
+        let (stream_tx, stream_rx) = mpsc::channel();
+        self.stream_rx = Some(stream_rx);
+        self.dispatcher.set_stream_tx(stream_tx);
+        self.rtk_reader_thread()
     }
 
     /// Pops the next available PqtmOutput from the internal buffer, if any.
-    pub fn get_pqtm_data(&mut self) -> Option<PqtmOutput> {
-        if let Some(rx) = &self.pqtm_receive_buffer {
-            match rx.try_recv() {
-                Ok(data) => Some(data),
-                Err(TryRecvError::Empty) => None,
-                Err(TryRecvError::Disconnected) => {
-                    // Thread exited or panicked
-                    None
-                }
-            }
-        } else {
-            None
-        }
+    pub fn get_gps_data(&mut self, timeout: Duration) -> Option<WireMessage> {
+        // println!("Checking for GPS data (in get_gps_data)...");
+        self.stream_rx.as_ref()?.recv_timeout(timeout).ok()
     }
 
     pub fn open_port(port: PathBuf) -> Result<BaseGPS, Error> {
@@ -61,7 +55,8 @@ impl BaseGPS {
                 println!("Successfully opened port {}", port.to_string_lossy());
                 Ok(BaseGPS {
                     base_gps_port,
-                    pqtm_receive_buffer: None,
+                    stream_rx: None,
+                    dispatcher: Dispatcher::new(),
                     stop_signal: Arc::new(AtomicBool::new(false)),
                 })
             }
@@ -76,7 +71,108 @@ impl BaseGPS {
         }
     }
 
-    fn rtk_reader_thread(&self, tx: Sender<PqtmOutput>) -> JoinHandle<()> {
+    pub fn send_command(&mut self, command: PQTMCommand, timeout: Duration) -> Result<PQTMResponse, ResponseError> {
+        let (wait_tx, wait_rx) = mpsc::channel();
+        
+        // Register a waiter for the expected response:
+        
+        self.dispatcher.register_waiter(Box::new(
+            |m| match m {
+                WireMessage::PQTMMessage(PQTMResponse::Epe(_)) => false,
+                WireMessage::PQTMMessage(PQTMResponse::SvinStatus(_)) => false,
+                WireMessage::PQTMMessage(_) => true,
+                _ => false,
+            }),
+         wait_tx,
+         1
+        );
+        
+        // Send command:
+        let sentence = command.to_sentence();
+        self.write_all(sentence.as_bytes()).map_err(|_| ResponseError::ParseError(ParseError::ParsingError("writing to GPS port failed")))?;
+        
+        // Wait for response:
+        match wait_rx.recv_timeout(timeout) {
+            Ok(WireMessage::PQTMMessage(resp)) => Ok(resp),
+            Ok(_) => Err(ResponseError::ParseError(ParseError::ParsingError("unexpected message type received"))),
+            Err(_) => Err(ResponseError::ParseError(ParseError::ParsingError("timeout waiting for response"))),
+        }
+    }
+    
+    /// Sends a PAIR get command (e.g., PAIR433, PAIR435).
+    /// Waits for ACK, then waits for the actual response.
+    /// Returns both so you can validate the ACK and get the data.
+    pub fn send_pair_get(
+        &mut self,
+        command: PairCommand,
+        timeout: Duration,
+    ) -> Result<(PairACK, PairResponse), ResponseError> {
+        let (wait_tx, wait_rx) = mpsc::channel();
+        
+        // Register ONCE for any PAIR message
+        self.dispatcher.register_waiter(
+            Box::new(|m| matches!(m, WireMessage::PairMessage(_))),
+            wait_tx,
+            2
+        );
+    
+        let sentence = command.to_sentence();
+        self.write_all(sentence.as_bytes())
+            .map_err(|_| ResponseError::ParseError(ParseError::ParsingError("write failed")))?;
+    
+        // Wait for ACK first
+        let ack = match wait_rx.recv_timeout(timeout) {
+            Ok(WireMessage::PairMessage(PairResponse::ACK(ack))) => {
+                if ack.result != AckResult::Success {
+                    return Err(ResponseError::ParseError(ParseError::ParsingError("ACK failed")));
+                }
+                ack
+            }
+            Ok(_) => return Err(ResponseError::ParseError(ParseError::ParsingError("expected ACK, got something else"))),
+            Err(_) => return Err(ResponseError::ParseError(ParseError::ParsingError("timeout waiting for ACK"))),
+        };
+    
+        // Now wait for the actual response (same waiter, same channel)
+        match wait_rx.recv_timeout(timeout) {
+            Ok(WireMessage::PairMessage(resp)) => Ok((ack, resp)),
+            Ok(_) => Err(ResponseError::ParseError(ParseError::ParsingError("unexpected message type"))),
+            Err(e) => Err(ResponseError::ParseError(ParseError::ParsingError("timeout waiting for response"))),
+        }
+    }
+
+    pub fn send_pair_set(
+        &mut self,
+        command: PairCommand,
+        timeout: Duration,
+    ) -> Result<PairACK, ResponseError> {
+        let (wait_tx, wait_rx) = mpsc::channel();
+        
+        // Wait for ACK only
+        self.dispatcher.register_waiter(
+            Box::new(|m| matches!(m, WireMessage::PairMessage(PairResponse::ACK(_)))),
+            wait_tx,
+            1,
+        );
+
+        let sentence = command.to_sentence();
+        self.write_all(sentence.as_bytes())
+            .map_err(|_| ResponseError::ParseError(ParseError::ParsingError("write failed")))?;
+
+        match wait_rx.recv_timeout(timeout) {
+            Ok(WireMessage::PairMessage(PairResponse::ACK(ack))) => {
+                if ack.result == AckResult::Success {
+                    Ok(ack)
+                } else {
+                    // ACK failed - return error with the ACK result embedded
+                    Err(ResponseError::ParseError(ParseError::ParsingError("ACK failed")))
+                }
+            }
+            Ok(_) => Err(ResponseError::ParseError(ParseError::ParsingError("unexpected message"))),
+            Err(_) => Err(ResponseError::ParseError(ParseError::ParsingError("timeout"))),
+        }
+    }
+
+    fn rtk_reader_thread(&self) -> JoinHandle<()> {
         let mut reader = BufReader::new(
             self.base_gps_port
                 .try_clone_native()
@@ -84,25 +180,21 @@ impl BaseGPS {
         );
         let mut serial_buf: Vec<u8> = vec![0; 512];
         let stop_signal = self.stop_signal.clone();
-        let mut parser = PqtmParser::new();
+        let mut parser = PQTMParser::new();
+        let dispatcher = self.dispatcher.clone();
 
         thread::spawn(move || {
             while !stop_signal.load(Ordering::Acquire) {
                 match reader.read(&mut serial_buf) {
                     Ok(t) if t > 0 => {
-                        let text = String::from_utf8_lossy(&serial_buf[..t]).into_owned();
-                        // println!("Read line: {}", text.trim());
-                        // println!("received_strings: {:?}", text);
-                        parser.parse_data(&text);
-
-                        // Process the buffer, search for $PQTM* sentences, parse into objects,
-                        // and send via channel (not implemented here)
+                        let chunk = String::from_utf8_lossy(&serial_buf[..t]).into_owned();
+                        for msg in parser.parse_data(&chunk) {
+                            // println!("Parsed GPS message: {:?}", msg);
+                            dispatcher.dispatch(msg);
+                        }
                     }
 
-                    Ok(_) => {
-                        // No data read; continue
-                        continue;
-                    }
+                    Ok(_) => continue, // No data read, continue
                     Err(e) => {
                         eprintln!("Error reading from GPS port: {}", e);
                         break;
