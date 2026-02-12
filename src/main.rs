@@ -1,13 +1,16 @@
 // src/main.rs
 use clap::Parser;
 use crossterm::execute;
-use std::io::{Write, stdout};
+use std::io::{self, Write, stdout};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, TryRecvError};
+use std::time::Duration;
+
 
 mod display;
 mod gps;
 mod gps_serial;
+mod motor;
 mod logging;
 mod ntrip;
 mod usb_serial;
@@ -19,7 +22,7 @@ struct Args {
     #[arg(long)]
     ntrip_mount: Option<String>, // E.g. "VMAX-LAND-1"
     /// GPS serial port path (e.g., /dev/ttyUSB0)
-    #[arg(long, default_value = "/dev/ttyUSB0")]
+    #[arg(long, default_value = "/dev/ttyS0")]
     gps_port: PathBuf,
     /// Arduino serial port path (e.g., /dev/ttyACM0)
     #[arg(long, default_value = "/dev/ttyACM0")]
@@ -43,11 +46,27 @@ fn main() -> std::io::Result<()> {
     };
 
     let logger = logging::Logger::new(log_file)?;
+    
+    // Prompt user for input
+ 
     let mut gps_port = gps_serial::open_port(args.gps_port);
     let mut arduino_port = usb_serial::open_port(args.arduino_port);
 
     let gps_connected = gps_port.is_ok();
     let arduino_connected = arduino_port.is_ok();
+
+    let mut motor_pin = motor::get_motor_pin(18).expect("Failed to initialize motor pin");
+
+    // println!("Setting to 1500...");
+    // motor::update_pwm(&mut motor_pin, 1500).expect("PWM Fail");
+    // std::thread::sleep(Duration::from_secs(5));
+
+    // println!("Setting to 1700...");
+    // motor::update_pwm(&mut motor_pin, 1700).expect("PWM Fail");
+    // std::thread::sleep(Duration::from_secs(5));
+
+    // println!("Setting back to 1500...");
+    // motor::update_pwm(&mut motor_pin, 1500).expect("PWM Fail");
 
     if !gps_connected && !arduino_connected {
         eprintln!("No serial ports connected. Exiting.");
@@ -72,7 +91,7 @@ fn main() -> std::io::Result<()> {
         });
         println!("Started NTRIP thread");
     }
-
+    
     loop {
         // Read from GPS serial port, if connected
         if gps_connected {
@@ -135,10 +154,26 @@ fn main() -> std::io::Result<()> {
                 continue;
             }
             if let Some(sensor_data) = arduino_serial_data.unwrap() {
-                // println!("Received sensor data: {:?}", sensor_data);
+                if let Some(euler_x) = sensor_data.euler_x {
+        
+                    // 1. Map using the unwrapped f32 value
+                    let target_pulse = map_range(euler_x, -180.0, 180.0, 1000, 2000);
+
+                    // 2. Safety Clamp
+                    let safe_pulse = target_pulse.clamp(1000, 2000);
+
+                    // 3. Command the motor
+                    let _ = motor::update_pwm(&mut motor_pin, safe_pulse);
+                }
+
                 logger.log_sensor_data(&sensor_data);
                 display.update_arduino(&mut stdout, &sensor_data)?;
             }
         };
     }
+
+   fn map_range(val: f32, in_min: f32, in_max: f32, out_min: u64, out_max: u64) -> u64 {
+    let result = (val - in_min) * (out_max - out_min) as f32 / (in_max - in_min) + out_min as f32;
+    result as u64
+}
 }
