@@ -4,7 +4,7 @@ use crossterm::execute;
 use std::io::{self, Write, stdout};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, TryRecvError};
-use std::time::Duration;
+// use std::time::Duration;
 
 
 mod display;
@@ -58,7 +58,7 @@ fn main() -> std::io::Result<()> {
     let arduino_connected = arduino_port.is_ok();
 
     // This creates both variables at once from the tuple returned by the function
-    let (mut motor_pin_L, mut motor_pin_R) = motor::get_motor_pins(13, 18).expect("Failed to initialize motor pins");
+    let (mut motor_pin_l, mut motor_pin_r) = motor::get_motor_pins(13, 18).expect("Failed to initialize motor pins");
 
     if !gps_connected && !arduino_connected {
         eprintln!("No serial ports connected. Exiting.");
@@ -83,9 +83,26 @@ fn main() -> std::io::Result<()> {
         });
         println!("Started NTRIP thread");
     }
-    
+
+    // Prompt user for proportional gain
+    println!("Enter proportional gain (Kp):");
+    let mut kp_input = String::new();
+    io::stdin().read_line(&mut kp_input).expect("Failed to read line");
+    let kp: f64 = kp_input.trim().parse().expect("Please enter a valid number");
+
+    // Prompt user for derivative gain
+    println!("Enter derivative gain (Kd):");
+    let mut kd_input = String::new();
+    io::stdin().read_line(&mut kd_input).expect("Failed to read line");
+    let kd: f64 = kd_input.trim().parse().expect("Please enter a valid number");
+
+    // Create PDController with user input
+    let mut yaw_control = PDController::new(kp, kd);
+
+    println!("Created PDController with Kp = {}, Kd = {}", kp, kd);
+
     // Adjust these gains (2.0, 0.5) once you see how the robot behaves
-    let mut yaw_control = PDController::new(2.0, 0.5); 
+    // let mut yaw_control = PDController::new(2.0, 0.5); 
     let target_yaw = 0.0; // Straight ahead
 
     loop {
@@ -174,18 +191,12 @@ fn main() -> std::io::Result<()> {
                 );
 
                 // Command the hardware
-                let _ = motor::update_pwm(&mut motor_pin_L, &mut motor_pin_R, commands.left_pwm_us as i64,commands.right_pwm_us as i64);
+                let _ = motor::update_pwm(&mut motor_pin_l, &mut motor_pin_r, commands.left_pwm_us as i64,commands.right_pwm_us as i64);
                 }
 
                 logger.log_sensor_data(&sensor_data);
                 display.update_arduino(&mut stdout, &sensor_data)?;
-            }
-            
+            }       
         };
-    }
-
-   fn map_range(val: f32, in_min: f32, in_max: f32, out_min: u64, out_max: u64) -> u64 {
-    let result = (val - in_min) * (out_max - out_min) as f32 / (in_max - in_min) + out_min as f32;
-    result as u64
-}
+    } 
 }
