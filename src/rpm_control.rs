@@ -9,7 +9,8 @@ pub struct PDController {
 }
 
 pub struct MotorCommands {
-    pub right_pwm_us: u64,  // Pulse width in microseconds
+    pub left_pwm_us: u64,   // Pulse width in microseconds
+    // pub right_pwm_us: u64,  // Pulse width in microseconds
 }
 
 impl PDController{
@@ -22,19 +23,13 @@ impl PDController{
         }
     }
 
-pub fn yaw_calculate(&mut self, current_yaw: f64, target_yaw: f64 ) -> f64 {
+pub fn rpm_calculate(&mut self, current_rpm: f64, target_rpm: f64 ) -> f64 {
 let now = Instant::now();
 //Calculate time passed in seconds
 let dt = now.duration_since(self.last_time).as_secs_f64();
 
-// Handle angle wrap around
-let mut error = target_yaw - current_yaw;
-if error > 180.0 {
-    error -= 360.0;
-}
-else if error < -180.0 {
-    error += 360.0;
-}
+// // Handle angle wrap around
+ let error = target_rpm - current_rpm;
 
 //Derivative
 let mut derivative = 0.0;
@@ -55,19 +50,24 @@ self.last_time = now;
 
 pub fn compute_motor_commands(
     &mut self,
-    current_yaw: f64,
-    target_yaw: f64,
-    base_speed_right: u64, // Now used as a constant
+    current_rpm: f64,
+    target_rpm: f64,
+    base_speed_left: u64, // Now used as a constant
+    // base_speed_right: u64, // Now used as a constant
 ) -> MotorCommands {
-    let yaw_correction = self.yaw_calculate(current_yaw, target_yaw);
+    let rpm_correction = self.rpm_calculate(current_rpm, target_rpm);
+
+    // Left motor stays at the constant speed provided
+    // let right_pwm = base_speed_right;
 
     // Right motor handles all the adjustment
-    // If yaw_correction is positive (need to turn right), 
-    // subtracting it makes the right motor slower.
-    let right_pwm = (base_speed_right as f64 + yaw_correction).clamp(1500.0, 2000.0) as u64;
+    // If rpm_correction is positive (need to go faster), 
+    // adding it makes the right motor faster.
+    let left_pwm = (base_speed_left as f64 - rpm_correction).clamp(1000.0, 1500.0) as u64;
 
     MotorCommands {
-        right_pwm_us: right_pwm as u64,
+        left_pwm_us: left_pwm as u64,
+        // right_pwm_us: right_pwm as u64,
     }
 }
 }

@@ -1,12 +1,3 @@
-// src/main.rs
-use clap::Parser;
-use crossterm::execute;
-use std::io::{self, Write, stdout};
-use std::path::PathBuf;
-use std::sync::mpsc::{self, TryRecvError};
-// use std::time::Duration;
-
-
 mod display;
 mod gps;
 mod gps_serial;
@@ -15,7 +6,21 @@ mod logging;
 mod ntrip;
 mod usb_serial;
 mod yaw_control;
-use yaw_control::PDController;
+mod rpm_control;
+// src/main.rs
+use clap::Parser;
+use crossterm::execute;
+use std::io::{self, Write, stdout};
+use std::path::PathBuf;
+use std::sync::mpsc::{self, TryRecvError};
+// use std::time::Duration;
+// Replace your current imports with these aliased ones:
+use yaw_control::PDController as YawController;
+use yaw_control::MotorCommands as YawCommands;
+
+use rpm_control::PDController as RpmController;
+use rpm_control::MotorCommands as RpmCommands;
+
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -86,25 +91,58 @@ fn main() -> std::io::Result<()> {
 
     // Prompt user for proportional gain
     println!("Enter proportional gain (Kp):");
-    let mut kp_input = String::new();
-    io::stdin().read_line(&mut kp_input).expect("Failed to read line");
-    let kp: f64 = kp_input.trim().parse().expect("Please enter a valid number");
+    let mut kp_input_yaw = String::new();
+    io::stdin().read_line(&mut kp_input_yaw).expect("Failed to read line");
+    let kp_input_yaw: f64 = kp_input_yaw.trim().parse().expect("Please enter a valid number");
 
     // Prompt user for derivative gain
     println!("Enter derivative gain (Kd):");
-    let mut kd_input = String::new();
-    io::stdin().read_line(&mut kd_input).expect("Failed to read line");
-    let kd: f64 = kd_input.trim().parse().expect("Please enter a valid number");
+    let mut kd_input_yaw = String::new();
+    io::stdin().read_line(&mut kd_input_yaw).expect("Failed to read line");
+    let kd_input_yaw: f64 = kd_input_yaw.trim().parse().expect("Please enter a valid number");
 
     // Create PDController with user input
-    let mut yaw_control = PDController::new(kp, kd);
+    let mut yaw_control = YawController::new(kp_input_yaw, kd_input_yaw);
 
-    println!("Created PDController with Kp = {}, Kd = {}", kp, kd);
+    println!("Created PDController with Kp = {}, Kd = {}", kp_input_yaw, kd_input_yaw);
 
+    // ===============================================================================================
+    
+    // Prompt user for proportional gain
+    println!("Enter proportional gain (Kp):");
+    let mut kp_input_rpm = String::new();
+    io::stdin().read_line(&mut kp_input_rpm).expect("Failed to read line");
+    let kp_input_rpm: f64 = kp_input_rpm.trim().parse().expect("Please enter a valid number");
+
+    // Prompt user for derivative gain
+    println!("Enter derivative gain (Kd):");
+    let mut kd_input_rpm = String::new();
+    io::stdin().read_line(&mut kd_input_rpm).expect("Failed to read line");
+    let kd_input_rpm: f64 = kd_input_rpm.trim().parse().expect("Please enter a valid number");
+
+    // Create PDController with user input
+    let mut rpm_control = RpmController::new(kp_input_rpm, kd_input_rpm);
+
+    println!("Created PDController with Kp = {}, Kd = {}", kp_input_rpm, kd_input_rpm);
+
+    
+    // ===============================================================================================
+    
     // Adjust these gains (2.0, 0.5) once you see how the robot behaves
     // let mut yaw_control = PDController::new(2.0, 0.5); 
     let target_yaw = 0.0; // Straight ahead
 
+    // =============================================
+
+        // Prompt user for proportional gain
+    println!("Enter target RPM:");
+    let mut target_rpm = String::new();
+    io::stdin().read_line(&mut target_rpm).expect("Failed to read line");
+    let target_rpm: f64 = target_rpm.trim().parse().expect("Please enter a valid number");
+
+    println!("Target RPM{}", target_rpm);
+
+    //=============================================================================================
     loop {
         // Read from GPS serial port, if connected
         if gps_connected {
@@ -167,36 +205,33 @@ fn main() -> std::io::Result<()> {
                 continue;
             }
             if let Some(sensor_data) = arduino_serial_data.unwrap() {
-                // if let Some(euler_x) = sensor_data.euler_x {
-        
-                //     // 1. Map using the unwrapped f32 value
-                //     let target_pulse = map_range(euler_x, -180.0, 180.0, 1000, 2000);
-
-                //     // 2. Safety Clamp
-                //     let safe_pulse = target_pulse.clamp(1000, 2000);
-
-                //     // 3. Command the motor
-                //     let _ = motor::update_pwm(&mut motor_pin_L,motor_pin_R, safe_pulse);
-    
-                // }
 
                 if let Some(euler_x) = sensor_data.euler_x {
                 let corrected_yaw = -(euler_x as f64);
+                // Call controller to command right motor speed
+                let commands_yaw: YawCommands = yaw_control.compute_motor_commands(
+                corrected_yaw, 
+                target_yaw, 
+                1700, 
+                );
+
+                if let Some(rpm_left) = sensor_data.rpm_left {
                 // Call controller with 1600 as the constant left speed
-                let commands = yaw_control.compute_motor_commands(
-                    corrected_yaw, 
-                    target_yaw, // Target yaw is 0 degrees (straight ahead)
-                    1300, // Constant Left Motor Speed
-                    1700
+                let commands_rpm: RpmCommands = rpm_control.compute_motor_commands(
+                rpm_left as f64, 
+                target_rpm, 
+                1300, 
                 );
 
                 // Command the hardware
-                let _ = motor::update_pwm(&mut motor_pin_l, &mut motor_pin_r, commands.left_pwm_us as i64,commands.right_pwm_us as i64);
-                }
+                let _ = motor::update_pwm_l(&mut motor_pin_l, commands_rpm.left_pwm_us as i64);
+                let _ = motor::update_pwm_r(&mut motor_pin_r, commands_yaw.right_pwm_us as i64);
+            }
 
                 logger.log_sensor_data(&sensor_data);
                 display.update_arduino(&mut stdout, &sensor_data)?;
             }       
         };
     } 
+}
 }
