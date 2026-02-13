@@ -1,36 +1,37 @@
-// use rppal::gpio::Gpio;
-// use std::time::Duration;
-// use std::error::Error;
-
-// pub fn set_motor_pwm(pin_num: i32, pulse_width_us: i32) -> Result<(), Box<dyn Error>> {
-//     let gpio = Gpio::new()?;
-//     // Map the i32 pin to u16 for rppal
-//     let mut pin = gpio.get(pin_num as u8)?.into_output();
-
-//     let period = Duration::from_millis(20); // 50Hz
-//     let pwm = Duration::from_micros(pulse_width_us as u64);
-
-//     println!("Setting Pin {} to {}us", pin_num, pulse_width_us);
-//     pin.set_pwm(period, pwm)?;
-
-//     Ok(())
-// }
-
 use rppal::gpio::{Gpio, OutputPin};
 use std::time::Duration;
 use std::error::Error;
 
-// This now returns the OutputPin so main can keep it alive
-pub fn get_motor_pin(pin_num: u8) -> Result<OutputPin, Box<dyn Error>> {
+// In motor.rs - Ensure you have two pins ready
+pub fn get_motor_pins(left_pin: u8, right_pin: u8) -> Result<(OutputPin, OutputPin), Box<dyn Error>> {
     let gpio = Gpio::new()?;
-    let pin = gpio.get(pin_num)?.into_output();
-    Ok(pin)
+    let p_left = gpio.get(left_pin)?.into_output();
+    let p_right = gpio.get(right_pin)?.into_output();
+    Ok((p_left, p_right))
 }
 
-pub fn update_pwm(pin: &mut OutputPin, pulse_width_us: u64) -> Result<(), Box<dyn Error>> {
-    let period = Duration::from_millis(20); // 50Hz
-    let pwm = Duration::from_micros(pulse_width_us);
+// pub fn update_pwm(pin: &mut OutputPin, pulse_width_us: u64) -> Result<(), Box<dyn Error>> {
+//     let period = Duration::from_millis(20); // 50Hz
+//     let pwm = Duration::from_micros(pulse_width_us);
     
-    pin.set_pwm(period, pwm)?;
+//     pin.set_pwm(period, pwm)?;
+//     Ok(())
+// }
+
+pub fn update_pwm(
+    pin_l: &mut OutputPin, 
+    pin_r: &mut OutputPin, 
+    pulse_l: i64, 
+    pulse_r: i64
+) -> Result<(), Box<dyn Error>> {
+    let period = Duration::from_millis(20); // 50Hz
+
+    // We use .abs() so that your -1600 becomes a valid 1600us pulse
+    let pwm_l = Duration::from_micros(pulse_l.abs() as u64);
+    let pwm_r = Duration::from_micros(pulse_r.abs() as u64);
+
+    pin_l.set_pwm(period, pwm_l)?;
+    pin_r.set_pwm(period, pwm_r)?;
+
     Ok(())
 }

@@ -14,6 +14,8 @@ mod motor;
 mod logging;
 mod ntrip;
 mod usb_serial;
+mod yaw_control;
+use yaw_control::PDController;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -55,18 +57,8 @@ fn main() -> std::io::Result<()> {
     let gps_connected = gps_port.is_ok();
     let arduino_connected = arduino_port.is_ok();
 
-    let mut motor_pin = motor::get_motor_pin(18).expect("Failed to initialize motor pin");
-
-    // println!("Setting to 1500...");
-    // motor::update_pwm(&mut motor_pin, 1500).expect("PWM Fail");
-    // std::thread::sleep(Duration::from_secs(5));
-
-    // println!("Setting to 1700...");
-    // motor::update_pwm(&mut motor_pin, 1700).expect("PWM Fail");
-    // std::thread::sleep(Duration::from_secs(5));
-
-    // println!("Setting back to 1500...");
-    // motor::update_pwm(&mut motor_pin, 1500).expect("PWM Fail");
+    // This creates both variables at once from the tuple returned by the function
+    let (mut motor_pin_L, mut motor_pin_R) = motor::get_motor_pins(13, 18).expect("Failed to initialize motor pins");
 
     if !gps_connected && !arduino_connected {
         eprintln!("No serial ports connected. Exiting.");
@@ -92,6 +84,10 @@ fn main() -> std::io::Result<()> {
         println!("Started NTRIP thread");
     }
     
+    // Adjust these gains (2.0, 0.5) once you see how the robot behaves
+    let mut yaw_control = PDController::new(2.0, 0.5); 
+    let target_yaw = 0.0; // Straight ahead
+
     loop {
         // Read from GPS serial port, if connected
         if gps_connected {
@@ -126,7 +122,7 @@ fn main() -> std::io::Result<()> {
                 parser = next_parser;
                 gga_fix_quality = next_gga_fix_quality;
             }
-
+            
             // Write any pending NTRIP correction data to serial
             loop {
                 match rx.try_recv() {
@@ -154,21 +150,37 @@ fn main() -> std::io::Result<()> {
                 continue;
             }
             if let Some(sensor_data) = arduino_serial_data.unwrap() {
-                if let Some(euler_x) = sensor_data.euler_x {
+                // if let Some(euler_x) = sensor_data.euler_x {
         
-                    // 1. Map using the unwrapped f32 value
-                    let target_pulse = map_range(euler_x, -180.0, 180.0, 1000, 2000);
+                //     // 1. Map using the unwrapped f32 value
+                //     let target_pulse = map_range(euler_x, -180.0, 180.0, 1000, 2000);
 
-                    // 2. Safety Clamp
-                    let safe_pulse = target_pulse.clamp(1000, 2000);
+                //     // 2. Safety Clamp
+                //     let safe_pulse = target_pulse.clamp(1000, 2000);
 
-                    // 3. Command the motor
-                    let _ = motor::update_pwm(&mut motor_pin, safe_pulse);
+                //     // 3. Command the motor
+                //     let _ = motor::update_pwm(&mut motor_pin_L,motor_pin_R, safe_pulse);
+    
+                // }
+
+                if let Some(euler_x) = sensor_data.euler_x {
+                let corrected_yaw = -(euler_x as f64);
+                // Call controller with 1600 as the constant left speed
+                let commands = yaw_control.compute_motor_commands(
+                    corrected_yaw, 
+                    target_yaw, // Target yaw is 0 degrees (straight ahead)
+                    1300, // Constant Left Motor Speed
+                    1700
+                );
+
+                // Command the hardware
+                let _ = motor::update_pwm(&mut motor_pin_L, &mut motor_pin_R, commands.left_pwm_us as i64,commands.right_pwm_us as i64);
                 }
 
                 logger.log_sensor_data(&sensor_data);
                 display.update_arduino(&mut stdout, &sensor_data)?;
             }
+            
         };
     }
 
