@@ -2,7 +2,9 @@
 close all
 
 basePath = 'C:\Users\jcohe\OneDrive\Documents\Python_Projects\PhD_Research\Data_Review\Classifier';
-folders = {'Hard Ice Useful Data', 'Soft Snow Useful Data', 'Wet Sand Useful Data'}; % your data folders
+% folders = {'Hard Ice Useful Data', 'Soft Snow Useful Data'}; % your data folders
+folders = {'Wet Sand Useful Data'}; % your data folders
+
 file2 = 'Mean_RPM_iR.txt'; % same for all
 
 outputFolder = fullfile(basePath, 'Normalized_Data');
@@ -25,7 +27,14 @@ for f = 1:length(folders)
         data = load(filename);
         data_Beq = load(file2);
         P = 70;
+        
+        pitch_correct= - 4; %old
+        roll_correct = 1; %old
+        
+        % pitch_correct=  8.5; new
+        % roll_correct = -9.4; new
 
+        
         % Separate the data into individual vectors
         timeArd = data(:,1)/1000;
         voltageB = data(:,2); % Right Motor
@@ -46,7 +55,6 @@ for f = 1:length(folders)
         RPM_R = data(:,17);
         
         %% Torque Calculations
-        
         RPM_mean = data_Beq(1:18,1);
         RPM_mean = [0;RPM_mean];
         iR_mean = data_Beq(19:36,1);
@@ -78,6 +86,9 @@ for f = 1:length(folders)
         pitchDeg = eulZ;
         rollDeg = -eulY;
         yawDeg = -eulX;
+
+        pitchDeg =pitchDeg - pitch_correct; %Old      
+        rollDeg =rollDeg - roll_correct ; %Old
         
         % Calculate the time differences between consecutive signals
         timeDifferences = diff(timeArd);
@@ -96,11 +107,11 @@ for f = 1:length(folders)
         %% Sensor Suite
         Sensors = [T_L,T_R,IavLSave,IavRSave,...
             lin_accel_x,lin_accel_y,lin_accel_z,...
-            sonar_distance_mm,ToF,RPM_L,RPM_R,];
+            sonar_distance_mm,ToF,RPM_L,RPM_R,rollDeg,pitchDeg];
         
         sensorNames = {'TorqL', 'TorqR', 'IavL', 'IavR', ...
                        'AccX', 'AccY', 'AccZ', ...
-                       'Sonar', 'ToF', 'RPML', 'RPMR'};
+                       'Sonar', 'ToF', 'RPML', 'RPMR','rollDeg','pitchDeg'};
         
         [N, numSensors] = size(Sensors);
 
@@ -127,8 +138,8 @@ for f = 1:length(folders)
         %segments = zeros(K, S); %rows,columns
         
         %% Savitzky-Golay Noise Filter
-        polyOrder = 3;
-        frameLen = 11; % Must be odd and > polyOrder + 1
+        % polyOrder = 3;
+        % frameLen = 11; % Must be odd and > polyOrder + 1
         
         % Define Filter Bank: [SensorIndex, polyOrder, frameLen]
         % Defaults: 3, 11. Adjust based on sensor noise characteristics.
@@ -144,7 +155,9 @@ for f = 1:length(folders)
             9, 2, 7;  % ToF
             10, 2, 5; % RPML
             11, 2, 5; % RPMR
-        ];
+            12, 2, 5; % Roll
+            13, 2, 5; % Pitch
+         ];
         
         % Create Filtered Matrix
         Sensors_Filtered = Sensors;
