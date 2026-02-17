@@ -44,13 +44,18 @@ import pandas as pd
 import joblib
 
 # 1. Load the saved model
-model_path_1 = "terrain_dt_model.pkl"
-model_path_2 = "terrain_rf_model.pkl"
-model_path_3 = "terrain_gb_model.pkl"
-model_path_4 = "terrain_svm_model.pkl"
-model_path_5 = "terrain_knn_model.pkl"
+model_path_1 = "terrain_dt_model_80_20.pkl"
+model_path_2 = "terrain_rf_model_80_20.pkl"
+model_path_3 = "terrain_gb_model_80_20.pkl"
+model_path_4 = "terrain_svm_model_80_20.pkl"
+model_path_5 = "terrain_knn_model_80_20.pkl"
 
-rf_model = joblib.load(model_path_1)
+model_path_6 = "terrain_dt_model_KFOLD_trq.pkl"
+model_path_7 = "terrain_rf_model_KFOLD_trq.pkl"
+model_path_8 = "terrain_gb_model_KFOLD_trq.pkl"
+model_path_9 = "terrain_svm_model_KFOLD_trq.pkl"
+model_path_10 = "terrain_knn_model_KFOLD_trq.pkl"
+rf_model = joblib.load(model_path_9)
 
 def predict_terrain_windowed(csv_path, window_size):
     # 2. Load the data
@@ -99,6 +104,6 @@ new_file4 = r"C:\Users\jcohe\OneDrive\Documents\Python_Projects\PhD_Research\Dat
 new_file5 = r"C:\Users\jcohe\OneDrive\Documents\Python_Projects\PhD_Research\Data_Review\Classifier\Test_Data\WetSand_1_Feb5_26_u1.csv"
 new_file6 = r"C:\Users\jcohe\OneDrive\Documents\Python_Projects\PhD_Research\Data_Review\Classifier\Test_Data\WetSand_2_Feb5_26_u3.csv"
 
-file = new_file6
+file = new_file5
 print(f"Processing {file} in 2-second windows...\n")
 window_results = predict_terrain_windowed(file, 5)
