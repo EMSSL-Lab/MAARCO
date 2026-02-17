@@ -1,12 +1,10 @@
 % Define the filename
 close all
-% filename =['C:\Users\jcohe\OneDrive\Documents\Python_Projects\PhD_Research\Data_Review\Classifier\Hard Ice Useful Data\HardIce_01_26_60RPM_test1_u2.txt'];% Replace with your actual filename
 
-% filename =['C:\Users\jcohe\OneDrive\Documents\Python_Projects\PhD_Research\Data_Review\Classifier\Wet Sand Useful Data\WetSand2_Feb5_26_u4.txt'];
-
-filename =['C:\Users\jcohe\OneDrive\Documents\Python_Projects\PhD_Research\Data_Review\Classifier\Wet Sand Useful Data\WetSand1_Feb5_26_u1.txt'];
-
-% filename =['Data_Review\Classifier\Soft Snow Useful Data\SoftSnow_02_02_60RPM_test4_u1.txt'];
+% filename =['C:\Users\jcohe\OneDrive\Documents\Python_Projects\PhD_Research\Data_Review\benchtop_1.TXT'];% Replace with your actual filename
+% filename =['C:\Users\jcohe\OneDrive\Documents\Python_Projects\PhD_Research\Data_Review\Classifier\Wet Sand Useful Data\WetSand_1_Feb5_26_u2.txt'];
+% filename =['C:\Users\jcohe\OneDrive\Documents\Python_Projects\PhD_Research\Data_Review\Classifier\Wet Sand Useful Data\WetSand_1_Feb5_26_u1.txt'];
+filename =['C:\Users\jcohe\OneDrive\Documents\Python_Projects\PhD_Research\Data_Review\Classifier\Hard Ice Useful Data\HardIce_01_26_60RPM_test1_u1.txt'];
 
 file2 = 'Mean_RPM_iR.txt';
 
@@ -15,11 +13,15 @@ file2 = 'Mean_RPM_iR.txt';
 % Define your output directory
 outputFolder = 'C:\Users\jcohe\OneDrive\Documents\Python_Projects\PhD_Research\Data_Review\Classifier\Normalized_Data';
 
+RPY_cold = "C:\Users\jcohe\OneDrive\Documents\Python_Projects\PhD_Research\Data_Review\Roll_Pitch_ZeroPoint.TXT";
+RPY_new = "C:\Users\jcohe\OneDrive\Documents\Python_Projects\PhD_Research\Data_Review\RPY_05FEB2026.TXT";
+
 P = 70;
 % Load the data from the text file
 data = load(filename);
 data_Beq = load(file2);
 
+data_zero = load(RPY_cold);
 % Separate the data into individual vectors
 timeArd = data(:,1)/1000;
 voltageB = data(:,2); % Right Motor
@@ -38,6 +40,12 @@ sonar_distance_mm = data(:,14);
 ToF = data(:,15);
 RPM_L = data(:,16);
 RPM_R = data(:,17);
+
+eulX_zero = data_zero(:,8);
+eulY_zero = data_zero(:,9);
+eulZ_zero = data_zero(:,10);
+timeArd_zero = data_zero(:,1)/1000;
+
 
 %% Torque Calculations
 
@@ -72,6 +80,16 @@ R_Rotations = data(:,19);
 pitchDeg = eulZ;
 rollDeg = -eulY;
 yawDeg = -eulX;
+
+% pitchDeg =pitchDeg - 8.5; %New
+pitchDeg =pitchDeg + 4; %Old
+
+% rollDeg =rollDeg + 5.8; %New
+rollDeg =rollDeg - 1; %Old
+
+pitchDeg_zero = eulZ_zero;
+rollDeg_zero = -eulY_zero;
+yawDeg_zero = -eulX_zero;
 
 % Calculate the time differences between consecutive signals
 timeDifferences = diff(timeArd);
@@ -134,6 +152,17 @@ plot(timeArd, yawDeg, 'b', 'DisplayName', 'Yaw');
 title('Euler Angles');
 xlabel('Time (s)'); ylabel('Degrees');
 legend; grid on;
+
+figure('Name', 'Group 4.5: Attitude Zero');
+plot(timeArd_zero, rollDeg_zero, 'r', 'DisplayName', 'Roll');
+hold on;
+plot(timeArd_zero, pitchDeg_zero, 'g', 'DisplayName', 'Pitch');
+plot(timeArd_zero, yawDeg_zero, 'b', 'DisplayName', 'Yaw');
+title('Euler Angles');
+xlabel('Time (s)'); ylabel('Degrees');
+legend; grid on;
+
+
 %%
 figure('Name', 'Group 5: IMU Acceleration');
 plot(timeArd, lin_accel_x, 'r', timeArd, lin_accel_y, 'g', timeArd, lin_accel_z, 'b');
