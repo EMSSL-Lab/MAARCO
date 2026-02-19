@@ -7,7 +7,8 @@ mod ntrip;
 mod usb_serial;
 mod yaw_control;
 mod rpm_control;
-// src/main.rs
+mod distance_control;
+
 use clap::Parser;
 use crossterm::execute;
 use std::io::{self, Write, stdout};
@@ -17,10 +18,9 @@ use std::sync::mpsc::{self, TryRecvError};
 // Replace your current imports with these aliased ones:
 use yaw_control::PDController as YawController;
 use yaw_control::MotorCommands as YawCommands;
-
 use rpm_control::PDController as RpmController;
 use rpm_control::MotorCommands as RpmCommands;
-
+use distance_control::DistanceController;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -47,28 +47,90 @@ fn main() -> std::io::Result<()> {
         None => {
             std::fs::create_dir_all("logs")?;
             let now = chrono::Local::now();
-            let filename = format!("{}", now.format("%Y-%m-%d_%H-%M-%S.csv"));
-            PathBuf::from("logs").join(filename)
+            PathBuf::from("logs").join(format!("{}", now.format("%Y-%m-%d_%H-%M-%S.csv")))
         }
     };
 
     let logger = logging::Logger::new(log_file)?;
-    
-    // Prompt user for input
- 
     let mut gps_port = gps_serial::open_port(args.gps_port);
     let mut arduino_port = usb_serial::open_port(args.arduino_port);
 
     let gps_connected = gps_port.is_ok();
     let arduino_connected = arduino_port.is_ok();
 
-    // This creates both variables at once from the tuple returned by the function
-    let (mut motor_pin_l, mut motor_pin_r) = motor::get_motor_pins(13, 18).expect("Failed to initialize motor pins");
+    let (mut motor_pin_l, mut motor_pin_r) =
+        motor::get_motor_pins(13, 18).expect("Failed to initialize motor pins");
 
     if !gps_connected && !arduino_connected {
         eprintln!("No serial ports connected. Exiting.");
         return Ok(());
     }
+
+    // ── Startup prompts ───────────────────────────────────────────────────────
+    //
+    // Control hierarchy:
+    //
+    // base_throttle (fixed, set once at startup)
+    //        │                        │
+    //        ▼                        ▼
+    // rpm_ctrl (LEFT)          yaw_ctrl (RIGHT)
+    // holds target_rpm         steers around base_throttle
+    // trims for terrain        varies right motor for heading
+    //
+    // dist_ctrl: monitors position only.
+    //            cuts both motors to 1500 on arrival. nothing else.
+    //
+    // ─────────────────────────────────────────────────────────────────────────
+
+    let mut buf = String::new();
+
+    println!("Enter Yaw proportional gain (Kp):");
+    io::stdin().read_line(&mut buf)?;
+    let kp_yaw: f64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
+
+    println!("Enter Yaw derivative gain (Kd):");
+    io::stdin().read_line(&mut buf)?;
+    let kd_yaw: f64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
+
+    println!("Enter target yaw heading in degrees (0=North, 90=East):");
+    io::stdin().read_line(&mut buf)?;
+    let target_yaw: f64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
+
+    println!("Enter RPM proportional gain (Kp):");
+    io::stdin().read_line(&mut buf)?;
+    let kp_rpm: f64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
+
+    println!("Enter RPM derivative gain (Kd):");
+    io::stdin().read_line(&mut buf)?;
+    let kd_rpm: f64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
+
+    println!("Enter target left motor RPM:");
+    io::stdin().read_line(&mut buf)?;
+    let target_rpm: f64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
+
+    println!("Enter target distance in meters:");
+    io::stdin().read_line(&mut buf)?;
+    let target_dist: f64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
+
+    // base_throttle: fixed for the whole run.
+    // Not touched by any controller — only dist_ctrl can override it to 1500
+    // on arrival.
+    println!("Enter base throttle PWM (1500=stop, 2000=full forward):");
+    io::stdin().read_line(&mut buf)?;
+    let base_throttle: u64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
+    // ─────────────────────────────────────────────────────────────────────────
+
+    let mut yaw_ctrl  = YawController::new(kp_yaw, kd_yaw);
+    let mut rpm_ctrl  = RpmController::new(kp_rpm, kd_rpm);
+    let mut dist_ctrl = DistanceController::new();
 
     let mut parser = gps::parser::build_parser();
     let mut gga_fix_quality: Option<String> = None;
@@ -80,8 +142,6 @@ fn main() -> std::io::Result<()> {
 
     // Channel for NTRIP data to write to serial
     let (tx, rx) = mpsc::channel::<Vec<u8>>();
-
-    // Start NTRIP thread if configured
     if let Some(mount) = args.ntrip_mount {
         std::thread::spawn(move || {
             ntrip::connect_rtk2go_ntrip(tx, &mount);
@@ -89,68 +149,15 @@ fn main() -> std::io::Result<()> {
         println!("Started NTRIP thread");
     }
 
-    // Prompt user for proportional gain
-    println!("Enter proportional gain (Kp):");
-    let mut kp_input_yaw = String::new();
-    io::stdin().read_line(&mut kp_input_yaw).expect("Failed to read line");
-    let kp_input_yaw: f64 = kp_input_yaw.trim().parse().expect("Please enter a valid number");
-
-    // Prompt user for derivative gain
-    println!("Enter derivative gain (Kd):");
-    let mut kd_input_yaw = String::new();
-    io::stdin().read_line(&mut kd_input_yaw).expect("Failed to read line");
-    let kd_input_yaw: f64 = kd_input_yaw.trim().parse().expect("Please enter a valid number");
-
-    // Create PDController with user input
-    let mut yaw_control = YawController::new(kp_input_yaw, kd_input_yaw);
-
-    println!("Created PDController with Kp = {}, Kd = {}", kp_input_yaw, kd_input_yaw);
-
-    // ===============================================================================================
-    
-    // Prompt user for proportional gain
-    println!("Enter proportional gain (Kp):");
-    let mut kp_input_rpm = String::new();
-    io::stdin().read_line(&mut kp_input_rpm).expect("Failed to read line");
-    let kp_input_rpm: f64 = kp_input_rpm.trim().parse().expect("Please enter a valid number");
-
-    // Prompt user for derivative gain
-    println!("Enter derivative gain (Kd):");
-    let mut kd_input_rpm = String::new();
-    io::stdin().read_line(&mut kd_input_rpm).expect("Failed to read line");
-    let kd_input_rpm: f64 = kd_input_rpm.trim().parse().expect("Please enter a valid number");
-
-    // Create PDController with user input
-    let mut rpm_control = RpmController::new(kp_input_rpm, kd_input_rpm);
-
-    println!("Created PDController with Kp = {}, Kd = {}", kp_input_rpm, kd_input_rpm);
-
-    
-    // ===============================================================================================
-    
-    // Adjust these gains (2.0, 0.5) once you see how the robot behaves
-    // let mut yaw_control = PDController::new(2.0, 0.5); 
-    let target_yaw = 0.0; // Straight ahead
-
-    // =============================================
-
-        // Prompt user for proportional gain
-    println!("Enter target RPM:");
-    let mut target_rpm = String::new();
-    io::stdin().read_line(&mut target_rpm).expect("Failed to read line");
-    let target_rpm: f64 = target_rpm.trim().parse().expect("Please enter a valid number");
-
-    println!("Target RPM{}", target_rpm);
-
-    //=============================================================================================
+    // =========================================================================
     loop {
-        // Read from GPS serial port, if connected
+        // ── GPS branch (~1 Hz) ────────────────────────────────────────────────
         if gps_connected {
-            let gps_serial_data = gps_port.as_mut().unwrap().read_sentences();
-            if gps_serial_data.is_err() {
-                continue;
-            }
-            let sentences = gps_serial_data.unwrap();
+            let sentences = match gps_port.as_mut().unwrap().read_sentences() {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+
             for sentence in &sentences {
                 let mut next_parser = parser.clone();
                 gps::parser::parse_nmea_sentence(&mut next_parser, sentence);
@@ -165,20 +172,24 @@ fn main() -> std::io::Result<()> {
                     }
                 }
 
-                // If the time has changed, it means we've started a new epoch.
-                // We should log the *previous* epoch's fully accumulated data.
-                if next_parser.fix_time != parser.fix_time {
-                    if parser.fix_time.is_some() {
-                        logger.log_nmea(parser.clone(), gga_fix_quality.clone());
-                        display.update_gps(&mut stdout, &parser, gga_fix_quality.clone())?;
+                if next_parser.fix_time != parser.fix_time && parser.fix_time.is_some() {
+                    logger.log_nmea(parser.clone(), gga_fix_quality.clone());
+                    display.update_gps(&mut stdout, &parser, gga_fix_quality.clone())?;
+
+                    let fix_quality: u8 = gga_fix_quality
+                        .as_deref()
+                        .and_then(|q| q.parse().ok())
+                        .unwrap_or(0);
+                    if fix_quality >= 1 {
+                        if let (Some(lat), Some(lon)) = (parser.latitude, parser.longitude) {
+                            dist_ctrl.update_gps(lat, lon);
+                        }
                     }
                 }
 
                 parser = next_parser;
                 gga_fix_quality = next_gga_fix_quality;
             }
-            
-            // Write any pending NTRIP correction data to serial
             loop {
                 match rx.try_recv() {
                     Ok(data) => {
@@ -190,48 +201,80 @@ fn main() -> std::io::Result<()> {
                     }
                     Err(TryRecvError::Empty) => break,
                     Err(e) => {
-                        eprintln!("Channel error: {:?}", e);
+                        eprintln!("NTRIP channel error: {:?}", e);
                         break;
                     }
                 }
             }
         }
 
-        // Read from Arduino serial port, if connected
+        // ── Arduino branch (~10 Hz) ───────────────────────────────────────────
         if arduino_connected {
-            let arduino_serial_data = arduino_port.as_mut().unwrap().read_data();
-            if arduino_serial_data.is_err() {
-                // println!("Error reading from Arduino serial port");
-                continue;
-            }
-            if let Some(sensor_data) = arduino_serial_data.unwrap() {
+            let sensor_data = match arduino_port.as_mut().unwrap().read_data() {
+                Ok(Some(d)) => d,
+                Ok(None) => continue,
+                Err(_) => continue,
+            };
 
-                if let Some(euler_x) = sensor_data.euler_x {
-                let corrected_yaw = -(euler_x as f64);
-                // Call controller to command right motor speed
-                let commands_yaw: YawCommands = yaw_control.compute_motor_commands(
-                corrected_yaw, 
-                target_yaw, 
-                1700, 
-                );
+            logger.log_sensor_data(&sensor_data);
+            display.update_arduino(&mut stdout, &sensor_data)?;
 
-                if let Some(rpm_left) = sensor_data.rpm_left {
-                // Call controller with 1600 as the constant left speed
-                let commands_rpm: RpmCommands = rpm_control.compute_motor_commands(
-                rpm_left as f64, 
-                target_rpm, 
-                1300, 
-                );
-
-                // Command the hardware
-                let _ = motor::update_pwm_l(&mut motor_pin_l, commands_rpm.left_pwm_us as i64);
-                let _ = motor::update_pwm_r(&mut motor_pin_r, commands_yaw.right_pwm_us as i64);
+            // ── Step 1: Dead reckoning (10 Hz) ────────────────────────────────
+            if let (Some(rpm_l), Some(rpm_r), Some(euler_x)) = (
+                sensor_data.rpm_left,
+                sensor_data.rpm_right,
+                sensor_data.euler_x,
+            ) {
+                dist_ctrl.update_imu(distance_control::ImuSample {
+                    heading_deg: euler_x as f64,
+                    rpm_left:    rpm_l   as f64,
+                    rpm_right:   rpm_r   as f64,
+                });
             }
 
-                logger.log_sensor_data(&sensor_data);
-                display.update_arduino(&mut stdout, &sensor_data)?;
-            }       
-        };
-    } 
-}
+            // ── Step 2: Arrival check ─────────────────────────────────────────
+            // Distance controller does one thing: check if we're there.
+            // If yes, cut both motors and exit. No speed regulation.
+            let dist_out = dist_ctrl.check(target_dist);
+            println!("Distance traveled: {:.2} m", dist_out.dist_traveled_m);
+
+            if dist_out.arrived {
+                println!(
+                    "Target reached! Traveled {:.2} m. Stopping.",
+                    dist_out.dist_traveled_m
+                );
+                let _ = motor::update_pwm_l(&mut motor_pin_l, 1500);
+                let _ = motor::update_pwm_r(&mut motor_pin_r, 1500);
+                rpm_ctrl.reset_trim();
+                break;
+            }
+
+            // ── Step 3: Yaw controller — right motor only ─────────────────────
+            // Varies right motor around base_throttle to hold target_yaw.
+            // base_throttle is fixed — yaw_ctrl trims ±250 µs around it.
+            if let Some(euler_x) = sensor_data.euler_x {
+                let yaw_cmd: YawCommands = yaw_ctrl.compute_motor_commands(
+                    euler_x as f64,
+                    target_yaw,
+                    base_throttle,
+                );
+                let _ = motor::update_pwm_r(&mut motor_pin_r, yaw_cmd.right_pwm_us as i64);
+            }
+
+            // ── Step 4: RPM controller — left motor only ──────────────────────
+            // Holds left motor at user-defined target_rpm using measured
+            // rpm_left feedback. Completely independent of right motor.
+            // base_throttle is mirrored inside rpm_ctrl to get the left baseline.
+            if let Some(rpm_l) = sensor_data.rpm_left {
+                let rpm_cmd: RpmCommands = rpm_ctrl.compute_motor_commands(
+                    rpm_l as f64,
+                    target_rpm,
+                    base_throttle,
+                );
+                let _ = motor::update_pwm_l(&mut motor_pin_l, rpm_cmd.left_pwm_us as i64);
+            }
+        }
+    }
+
+    Ok(())
 }
