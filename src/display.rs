@@ -13,6 +13,7 @@ use crate::usb_serial::SensorData;
 pub struct Display {
     prev_lines: u16,
     last_gps: Option<(Nmea, Option<String>)>,
+    last_ntrip: String,
     last_arduino: Option<SensorData>,
 }
 
@@ -27,6 +28,7 @@ impl Display {
         Self {
             prev_lines: 0,
             last_gps: None,
+            last_ntrip: String::from("No connection"),
             last_arduino: None,
         }
     }
@@ -61,6 +63,15 @@ impl Display {
                 Some(other) => other,
                 None => "N/A",
             };
+            items.push(DisplayItem::Header(
+                "=== NTRIP STATUS ===".to_string(),
+                Color::Yellow,
+            ));
+            items.push(DisplayItem::Data(
+                "Status".to_string(),
+                self.last_ntrip.clone(),
+                None,
+            ));
 
             items.push(DisplayItem::Header(
                 "=== GPS DATA ===".to_string(),
@@ -307,8 +318,10 @@ impl Display {
         stdout: &mut W,
         parser: &Nmea,
         gga_fix_quality: Option<String>,
+        ntrip_status: &str,
     ) -> std::io::Result<()> {
         self.last_gps = Some((parser.clone(), gga_fix_quality));
+        self.last_ntrip = ntrip_status.to_string();
         self.render(stdout)
     }
 

@@ -1,12 +1,32 @@
 // src/ntrip.rs
 use base64::{Engine as _, engine::general_purpose};
-use std::io::{self, BufRead, BufReader, ErrorKind, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::sync::mpsc::Sender;
-use std::thread;
+use std::thread::{self};
 use std::time::Duration;
 
-pub fn connect_rtk2go_ntrip(tx: Sender<Vec<u8>>, mountpoint: &str) -> () {
+pub enum NTRIPMessage {
+    Rtcm(Vec<u8>),
+    ConnectionFailed,
+    AuthenticationFailed,
+    MountpointNotFound,
+    ReadError,
+}
+
+impl std::fmt::Display for NTRIPMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NTRIPMessage::Rtcm(_) => write!(f, "Receiving RTCM data"),
+            NTRIPMessage::ConnectionFailed => write!(f, "Connection failed"),
+            NTRIPMessage::AuthenticationFailed => write!(f, "Authentication failed"),
+            NTRIPMessage::MountpointNotFound => write!(f, "Mountpoint not found"),
+            NTRIPMessage::ReadError => write!(f, "Read error"),
+        }
+    }
+}
+
+pub fn connect_rtk2go_ntrip(tx: Sender<NTRIPMessage>, mountpoint: &str) -> () {
     // Connect to the RTK2GO NTRIP caster
     let maybe_stream = TcpStream::connect(("rtk2go.com", 2101));
     let mut stream = maybe_stream.expect("Could not connect to RTK2GO!");
@@ -27,6 +47,8 @@ pub fn connect_rtk2go_ntrip(tx: Sender<Vec<u8>>, mountpoint: &str) -> () {
 
     if let Err(e) = stream.write_all(request.as_bytes()) {
         eprintln!("Failed to send NTRIP request: {:?}", e);
+        tx.send(NTRIPMessage::ConnectionFailed)
+            .expect("Could not send connection error to main");
         return;
     }
 
@@ -43,6 +65,16 @@ pub fn connect_rtk2go_ntrip(tx: Sender<Vec<u8>>, mountpoint: &str) -> () {
     if !line.contains("200 OK") && !line.contains("ICY 200 OK") {
         // Some servers use ICY
         eprintln!("NTRIP connection failed: {}", line.trim());
+        tx.send(NTRIPMessage::AuthenticationFailed)
+            .expect("Could not send auth error to main");
+        return;
+    }
+
+    // When the mountpoint is not found, the server responds with a SOURCETABLE
+    if line.contains("SOURCETABLE") {
+        tx.send(NTRIPMessage::MountpointNotFound)
+            .expect("Could not send mtpt error to main");
+        return;
     }
 
     // Read and print incoming RTCM data chunks
@@ -59,12 +91,13 @@ pub fn connect_rtk2go_ntrip(tx: Sender<Vec<u8>>, mountpoint: &str) -> () {
                 // println!("Received {} bytes of RTCM data", n);
 
                 let _ = tx
-                    .send(buf[0..n].to_vec())
-                    .map_err(|e| io::Error::new(ErrorKind::Other, e));
+                    .send(NTRIPMessage::Rtcm(buf[0..n].to_vec()))
+                    .map_err(io::Error::other);
             }
 
-            Err(e) => {
-                eprintln!("NTRIP read error: {:?}. Trying again in 5 seconds", e);
+            Err(_) => {
+                tx.send(NTRIPMessage::ReadError)
+                    .expect("Could not send read error to main");
                 thread::sleep(Duration::from_secs(5));
             }
         }
