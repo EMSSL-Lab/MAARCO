@@ -71,16 +71,19 @@ fn main() -> std::io::Result<()> {
     // Control hierarchy:
     //
     // base_throttle (fixed, set once at startup)
-    //        │                        │
-    //        ▼                        ▼
+    //        │                        
+    //        ▼                        
     // rpm_ctrl (LEFT)          yaw_ctrl (RIGHT)
-    // holds target_rpm         steers around base_throttle
-    // trims for terrain        varies right motor for heading
+    // holds target_rpm        varies right motor for heading
+    // trims for terrain        
     //
     // dist_ctrl: monitors position only.
     //            cuts both motors to 1500 on arrival. nothing else.
     //
     // ─────────────────────────────────────────────────────────────────────────
+
+    // ------------------------------------------------ User input -------------------------
+    // Prompt user for control parameters at startup. No dynamic reconfiguration.
 
     let mut buf = String::new();
 
@@ -128,10 +131,13 @@ fn main() -> std::io::Result<()> {
     buf.clear();
     // ─────────────────────────────────────────────────────────────────────────
 
+    
+    // Initialize control variables
     let mut yaw_ctrl  = YawController::new(kp_yaw, kd_yaw);
     let mut rpm_ctrl  = RpmController::new(kp_rpm, kd_rpm);
     let mut dist_ctrl = DistanceController::new();
 
+    // Initialize gps variables
     let mut parser = gps::parser::build_parser();
     let mut gga_fix_quality: Option<String> = None;
     let mut stdout = stdout();
@@ -206,7 +212,10 @@ fn main() -> std::io::Result<()> {
                     }
                 }
             }
-        }
+        } 
+        // =========================================================================
+
+
 
         // ── Arduino branch (~10 Hz) ───────────────────────────────────────────
         if arduino_connected {
@@ -219,12 +228,14 @@ fn main() -> std::io::Result<()> {
             logger.log_sensor_data(&sensor_data);
             display.update_arduino(&mut stdout, &sensor_data)?;
 
-            // ── Step 1: Dead reckoning (10 Hz) ────────────────────────────────
+            // First check and see if the data we pull for the euler_x, rpm left, and 
+            // rpm right is valid. If so we can update the distance controller
             if let (Some(rpm_l), Some(rpm_r), Some(euler_x)) = (
                 sensor_data.rpm_left,
                 sensor_data.rpm_right,
                 sensor_data.euler_x,
             ) {
+                // executes for valid data
                 dist_ctrl.update_imu(distance_control::ImuSample {
                     heading_deg: euler_x as f64,
                     rpm_left:    rpm_l   as f64,
@@ -232,12 +243,12 @@ fn main() -> std::io::Result<()> {
                 });
             }
 
-            // ── Step 2: Arrival check ─────────────────────────────────────────
+            //  Arrival check ─────────────────────────────────────────
             // Distance controller does one thing: check if we're there.
             // If yes, cut both motors and exit. No speed regulation.
             let dist_out = dist_ctrl.check(target_dist);
             println!("Distance traveled: {:.2} m", dist_out.dist_traveled_m);
-
+            // set both motors to 1500 on arrival 
             if dist_out.arrived {
                 println!(
                     "Target reached! Traveled {:.2} m. Stopping.",
@@ -249,7 +260,7 @@ fn main() -> std::io::Result<()> {
                 break;
             }
 
-            // ── Step 3: Yaw controller — right motor only ─────────────────────
+            // Yaw controller — right motor only ─────────────────────
             // Varies right motor around base_throttle to hold target_yaw.
             // base_throttle is fixed — yaw_ctrl trims ±250 µs around it.
             if let Some(euler_x) = sensor_data.euler_x {
@@ -261,7 +272,7 @@ fn main() -> std::io::Result<()> {
                 let _ = motor::update_pwm_r(&mut motor_pin_r, yaw_cmd.right_pwm_us as i64);
             }
 
-            // ── Step 4: RPM controller — left motor only ──────────────────────
+            // RPM controller — left motor only ──────────────────────
             // Holds left motor at user-defined target_rpm using measured
             // rpm_left feedback. Completely independent of right motor.
             // base_throttle is mirrored inside rpm_ctrl to get the left baseline.
@@ -274,6 +285,9 @@ fn main() -> std::io::Result<()> {
                 let _ = motor::update_pwm_l(&mut motor_pin_l, rpm_cmd.left_pwm_us as i64);
             }
         }
+
+        // =========================================================================
+
     }
 
     Ok(())

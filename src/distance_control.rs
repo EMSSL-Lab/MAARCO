@@ -61,16 +61,17 @@ impl DistanceController {
         self.last_imu_time = now;
 
         if self.dr_lat.is_none() || dt <= 0.0 || dt > 1.0 {
-            return;
+            return; // end function if no lat data or unreasonable dt 
         }
 
         let avg_rpm = (sample.rpm_left + sample.rpm_right) / 2.0;
         let rotations_per_sec = avg_rpm / 60.0;
-        let forward_m = rotations_per_sec * METERS_PER_ROTATION * dt;
+        let forward_displacement = rotations_per_sec * METERS_PER_ROTATION * dt; // in meters
 
+        // Trig to convert heading vector into north/east components. Heading is 0° at north, increasing clockwise.
         let heading_rad = sample.heading_deg.to_radians();
-        self.dr_north_m += forward_m * heading_rad.cos();
-        self.dr_east_m  += forward_m * heading_rad.sin();
+        self.dr_north_m += forward_displacement * heading_rad.cos();
+        self.dr_east_m  += forward_displacement * heading_rad.sin();
     }
 
     fn estimated_position(&self) -> Option<(f64, f64)> {
@@ -78,12 +79,16 @@ impl DistanceController {
         let base_lon = self.dr_lon?;
         let lat_m_per_deg = 111_111.0_f64;
         let lon_m_per_deg = 111_111.0 * base_lat.to_radians().cos();
+
+        // convert north/east displacements from meters back into degrees and add to base position
         Some((
             base_lat + self.dr_north_m / lat_m_per_deg,
             base_lon + self.dr_east_m / lon_m_per_deg,
         ))
     }
 
+    // Returns the displacement from the start position in meters, using the Haversine function to 
+    // calculate the distance between the start position (degrees) and the current estimated position (degrees)
     fn distance_from_start(&self) -> f64 {
         let (start_lat, start_lon) = match (self.start_lat, self.start_lon) {
             (Some(la), Some(lo)) => (la, lo),
@@ -93,6 +98,9 @@ impl DistanceController {
             Some(pos) => pos,
             None => return 0.0,
         };
+
+        // Calculate the distane between the start position (in degrees) and the current estimated position (in degrees) using the Haversine formula
+        // The Haversine function output is the distance in meters between the two positions
         haversine(start_lat, start_lon, est_lat, est_lon)
     }
 
@@ -107,6 +115,8 @@ impl DistanceController {
     }
 }
 
+// Haversine formula to calculate the great-circle distance between two points on the Earth given their latitudes and longitudes in degrees.
+// Returns distance in meters.
 fn haversine(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     let r = 6_371_000.0_f64;
     let d_lat = (lat2 - lat1).to_radians();
