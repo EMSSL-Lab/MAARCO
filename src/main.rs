@@ -7,20 +7,18 @@ mod ntrip;
 mod usb_serial;
 mod yaw_control;
 mod rpm_control;
-mod distance_control;
+mod distance_tracker;
 
 use clap::Parser;
 use crossterm::execute;
 use std::io::{self, Write, stdout};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, TryRecvError};
-// use std::time::Duration;
-// Replace your current imports with these aliased ones:
 use yaw_control::PDController as YawController;
 use yaw_control::MotorCommands as YawCommands;
 use rpm_control::PDController as RpmController;
 use rpm_control::MotorCommands as RpmCommands;
-use distance_control::DistanceController;
+use distance_tracker::DistanceTracker;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -135,7 +133,7 @@ fn main() -> std::io::Result<()> {
     // Initialize control variables
     let mut yaw_ctrl  = YawController::new(kp_yaw, kd_yaw);
     let mut rpm_ctrl  = RpmController::new(kp_rpm, kd_rpm);
-    let mut dist_ctrl = DistanceController::new();
+    let mut dist_tracker = DistanceTracker::new();
 
     // Initialize gps variables
     let mut parser = gps::parser::build_parser();
@@ -188,7 +186,8 @@ fn main() -> std::io::Result<()> {
                         .unwrap_or(0);
                     if fix_quality >= 1 {
                         if let (Some(lat), Some(lon)) = (parser.latitude, parser.longitude) {
-                            dist_ctrl.update_gps(lat, lon);
+                            let speed_kmh = parser.speed_over_ground.unwrap_or(0.0) as f64;
+                            dist_tracker.update_gps(lat, lon, speed_kmh);
                         }
                     }
                 }
@@ -228,37 +227,41 @@ fn main() -> std::io::Result<()> {
             logger.log_sensor_data(&sensor_data);
             display.update_arduino(&mut stdout, &sensor_data)?;
 
-            // First check and see if the data we pull for the euler_x, rpm left, and 
-            // rpm right is valid. If so we can update the distance controller
-            if let (Some(rpm_l), Some(rpm_r), Some(euler_x)) = (
+            // NEW DISTANCE CONTROLLER UPDATE ─────────────────────────────────────────
+              if let (Some(rpm_l), Some(rpm_r), Some(ax), Some(ay), Some(az)) = (
                 sensor_data.rpm_left,
                 sensor_data.rpm_right,
-                sensor_data.euler_x,
+                sensor_data.acc_lin_x,
+                sensor_data.acc_lin_y,
+                sensor_data.acc_lin_z,
             ) {
-                // executes for valid data
-                dist_ctrl.update_imu(distance_control::ImuSample {
-                    heading_deg: euler_x as f64,
-                    rpm_left:    rpm_l   as f64,
-                    rpm_right:   rpm_r   as f64,
-                });
-            }
-
-            //  Arrival check ─────────────────────────────────────────
-            // Distance controller does one thing: check if we're there.
-            // If yes, cut both motors and exit. No speed regulation.
-            let dist_out = dist_ctrl.check(target_dist);
-            println!("Distance traveled: {:.2} m", dist_out.dist_traveled_m);
-            // set both motors to 1500 on arrival 
-            if dist_out.arrived {
-                println!(
-                    "Target reached! Traveled {:.2} m. Stopping.",
-                    dist_out.dist_traveled_m
+                let dist_out = dist_tracker.update_imu(
+                    rpm_l as f64,
+                    rpm_r as f64,
+                    ax as f64,
+                    ay as f64,
+                    az as f64,
+                    target_dist,
                 );
-                let _ = motor::update_pwm_l(&mut motor_pin_l, 1500);
-                let _ = motor::update_pwm_r(&mut motor_pin_r, 1500);
-                rpm_ctrl.reset_trim();
-                break;
+
+                println!("Distance traveled: {:.3} m",dist_out.dist_traveled_m);
+
+                if dist_out.arrived {
+                    println!(
+                        "Target reached! Traveled {:.3} m. Stopping.",
+                        dist_out.dist_traveled_m
+                    );
+                    let _ = motor::update_pwm_l(&mut motor_pin_l, 1500);
+                    let _ = motor::update_pwm_r(&mut motor_pin_r, 1500);
+                    rpm_ctrl.reset_trim();
+                    break;
+                }
+
             }
+            // --------------------------------------------------------------------------------------
+
+
+         
 
             // Yaw controller — right motor only ─────────────────────
             // Varies right motor around base_throttle to hold target_yaw.
