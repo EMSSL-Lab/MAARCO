@@ -246,34 +246,32 @@ mod ntrip;
 mod usb_serial;
 mod yaw_control;
 mod rpm_control;
-mod distance_control; // Added distance_control module
+mod distance_tracker;
 
-// src/main.rs
 use clap::Parser;
 use crossterm::execute;
 use std::io::{self, Write, stdout};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, TryRecvError};
-
 use yaw_control::PDController as YawController;
 use yaw_control::MotorCommands as YawCommands;
-
 use rpm_control::PDController as RpmController;
 use rpm_control::MotorCommands as RpmCommands;
-
-// Added Distance Controller imports
-use distance_control::PDController as DistanceController;
-use distance_control::DistanceCommands;
+use distance_tracker::DistanceTracker;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    /// NTRIP mountpoint (e.g., MOUNTPOINT)
     #[arg(long)]
     ntrip_mount: Option<String>,
+    /// GPS serial port path (e.g., /dev/ttyUSB0)
     #[arg(long, default_value = "/dev/ttyS0")]
     gps_port: PathBuf,
+    /// Arduino serial port path (e.g., /dev/ttyACM0)
     #[arg(long, default_value = "/dev/ttyACM0")]
     arduino_port: PathBuf,
+    /// Log file path
     #[arg(long)]
     log_file: Option<PathBuf>,
 }
@@ -286,26 +284,73 @@ fn main() -> std::io::Result<()> {
         None => {
             std::fs::create_dir_all("logs")?;
             let now = chrono::Local::now();
-            let filename = format!("{}", now.format("%Y-%m-%d_%H-%M-%S.csv"));
-            PathBuf::from("logs").join(filename)
+            PathBuf::from("logs").join(format!("{}", now.format("%Y-%m-%d_%H-%M-%S.csv")))
         }
     };
 
     let logger = logging::Logger::new(log_file)?;
-    
     let mut gps_port = gps_serial::open_port(args.gps_port);
     let mut arduino_port = usb_serial::open_port(args.arduino_port);
 
     let gps_connected = gps_port.is_ok();
     let arduino_connected = arduino_port.is_ok();
 
-    let (mut motor_pin_l, mut motor_pin_r) = motor::get_motor_pins(13, 18).expect("Failed to initialize motor pins");
+    let (mut motor_pin_l, mut motor_pin_r) =
+        motor::get_motor_pins(13, 18).expect("Failed to initialize motor pins");
 
     if !gps_connected && !arduino_connected {
         eprintln!("No serial ports connected. Exiting.");
         return Ok(());
     }
 
+    let mut buf = String::new();
+
+    println!("Enter Yaw proportional gain (Kp):");
+    io::stdin().read_line(&mut buf)?;
+    let kp_yaw: f64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
+
+    println!("Enter Yaw derivative gain (Kd):");
+    io::stdin().read_line(&mut buf)?;
+    let kd_yaw: f64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
+
+    println!("Enter target yaw heading in degrees (0=North, 90=East):");
+    io::stdin().read_line(&mut buf)?;
+    let target_yaw: f64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
+
+    println!("Enter RPM proportional gain (Kp):");
+    io::stdin().read_line(&mut buf)?;
+    let kp_rpm: f64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
+
+    println!("Enter RPM derivative gain (Kd):");
+    io::stdin().read_line(&mut buf)?;
+    let kd_rpm: f64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
+
+    println!("Enter target left motor RPM:");
+    io::stdin().read_line(&mut buf)?;
+    let target_rpm: f64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
+
+    println!("Enter target distance in meters:");
+    io::stdin().read_line(&mut buf)?;
+    let target_dist: f64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
+
+    println!("Enter base throttle PWM (1500=stop, 2000=full forward):");
+    io::stdin().read_line(&mut buf)?;
+    let base_throttle: u64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
+
+    // Initialize control variables
+    let mut yaw_ctrl  = YawController::new(kp_yaw, kd_yaw);
+    let mut rpm_ctrl  = RpmController::new(kp_rpm, kd_rpm);
+    let mut dist_tracker = DistanceTracker::new();
+
+    // Initialize gps variables
     let mut parser = gps::parser::build_parser();
     let mut gga_fix_quality: Option<String> = None;
     let mut stdout = stdout();
@@ -314,7 +359,6 @@ fn main() -> std::io::Result<()> {
     execute!(stdout, crossterm::cursor::SetCursorStyle::BlinkingBlock)?;
 
     let (tx, rx) = mpsc::channel::<Vec<u8>>();
-
     if let Some(mount) = args.ntrip_mount {
         std::thread::spawn(move || {
             ntrip::connect_rtk2go_ntrip(tx, &mount);
@@ -322,66 +366,14 @@ fn main() -> std::io::Result<()> {
         println!("Started NTRIP thread");
     }
 
-    // --- YAW CONTROL PROMPTS ---
-    println!("Enter Yaw proportional gain (Kp):");
-    let mut kp_input_yaw = String::new();
-    io::stdin().read_line(&mut kp_input_yaw).expect("Failed to read line");
-    let kp_input_yaw: f64 = kp_input_yaw.trim().parse().expect("Please enter a valid number");
-
-    println!("Enter Yaw derivative gain (Kd):");
-    let mut kd_input_yaw = String::new();
-    io::stdin().read_line(&mut kd_input_yaw).expect("Failed to read line");
-    let kd_input_yaw: f64 = kd_input_yaw.trim().parse().expect("Please enter a valid number");
-
-    let mut yaw_control = YawController::new(kp_input_yaw, kd_input_yaw);
-
-    // --- RPM CONTROL PROMPTS ---
-    println!("Enter RPM proportional gain (Kp):");
-    let mut kp_input_rpm = String::new();
-    io::stdin().read_line(&mut kp_input_rpm).expect("Failed to read line");
-    let kp_input_rpm: f64 = kp_input_rpm.trim().parse().expect("Please enter a valid number");
-
-    println!("Enter RPM derivative gain (Kd):");
-    let mut kd_input_rpm = String::new();
-    io::stdin().read_line(&mut kd_input_rpm).expect("Failed to read line");
-    let kd_input_rpm: f64 = kd_input_rpm.trim().parse().expect("Please enter a valid number");
-
-    let mut rpm_control = RpmController::new(kp_input_rpm, kd_input_rpm);
-
-    // --- DISTANCE CONTROL PROMPTS (NEW) ---
-    println!("Enter Distance proportional gain (Kp):");
-    let mut kp_input_dist = String::new();
-    io::stdin().read_line(&mut kp_input_dist).expect("Failed to read line");
-    let kp_input_dist: f64 = kp_input_dist.trim().parse().expect("Please enter a valid number");
-
-    println!("Enter Distance derivative gain (Kd):");
-    let mut kd_input_dist = String::new();
-    io::stdin().read_line(&mut kd_input_dist).expect("Failed to read line");
-    let kd_input_dist: f64 = kd_input_dist.trim().parse().expect("Please enter a valid number");
-
-    println!("Enter target distance in meters:");
-    let mut target_dist_input = String::new();
-    io::stdin().read_line(&mut target_dist_input).expect("Failed to read line");
-    let target_dist: f64 = target_dist_input.trim().parse().expect("Please enter a valid number");
-
-    let mut distance_control = DistanceController::new(kp_input_dist, kd_input_dist);
-    let mut current_base_speed: u64 = 1500; // Default to neutral
-
-    println!("Enter target RPM:");
-    let mut target_rpm = String::new();
-    io::stdin().read_line(&mut target_rpm).expect("Failed to read line");
-    let target_rpm: f64 = target_rpm.trim().parse().expect("Please enter a valid number");
-
-    let target_yaw = 0.0; 
-
-    // =============================================================================================
     loop {
+        // ── GPS branch (~1 Hz) ────────────────────────────────────────────────
         if gps_connected {
-            let gps_serial_data = gps_port.as_mut().unwrap().read_sentences();
-            if gps_serial_data.is_err() {
-                continue;
-            }
-            let sentences = gps_serial_data.unwrap();
+            let sentences = match gps_port.as_mut().unwrap().read_sentences() {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+
             for sentence in &sentences {
                 let mut next_parser = parser.clone();
                 gps::parser::parse_nmea_sentence(&mut next_parser, sentence);
@@ -394,17 +386,26 @@ fn main() -> std::io::Result<()> {
                     }
                 }
 
-                if next_parser.fix_time != parser.fix_time {
-                    if parser.fix_time.is_some() {
-                        logger.log_nmea(parser.clone(), gga_fix_quality.clone());
-                        display.update_gps(&mut stdout, &parser, gga_fix_quality.clone())?;
+                if next_parser.fix_time != parser.fix_time && parser.fix_time.is_some() {
+                    logger.log_nmea(parser.clone(), gga_fix_quality.clone());
+                    display.update_gps(&mut stdout, &parser, gga_fix_quality.clone())?;
+
+                    let fix_quality: u8 = gga_fix_quality
+                        .as_deref()
+                        .and_then(|q| q.parse().ok())
+                        .unwrap_or(0);
+                    
+                    // CALL: Anchor the dead reckoning with fresh GPS coordinates
+                    if fix_quality >= 1 {
+                        if let (Some(lat), Some(lon)) = (parser.latitude, parser.longitude) {
+                            dist_tracker.update_gps(lat, lon);
+                        }
                     }
                 }
 
                 parser = next_parser;
                 gga_fix_quality = next_gga_fix_quality;
             }
-            
             loop {
                 match rx.try_recv() {
                     Ok(data) => {
@@ -414,60 +415,73 @@ fn main() -> std::io::Result<()> {
                     }
                     Err(TryRecvError::Empty) => break,
                     Err(e) => {
-                        eprintln!("Channel error: {:?}", e);
+                        eprintln!("NTRIP channel error: {:?}", e);
                         break;
                     }
                 }
             }
-        }
-
-        if arduino_connected {
-            let arduino_serial_data = arduino_port.as_mut().unwrap().read_data();
-            if arduino_serial_data.is_err() {
-                continue;
-            }
-            if let Some(sensor_data) = arduino_serial_data.unwrap() {
-
-                // --- DISTANCE CALCULATION CALLBACK ---
-                if let (Some(lat), Some(lon)) = (parser.latitude, parser.longitude) {
-                    let dist_commands = distance_control.compute_motor_commands(
-                        lat,
-                        lon,
-                        target_dist,
-                        1700, // Reference base speed
-                    );
-                    current_base_speed = dist_commands.base_speed;
-                    
-                    if dist_commands.arrived {
-                        // You could add logic here to stop the loop or signal completion
-                    }
-                }
-
-                if let Some(euler_x) = sensor_data.euler_x {
-                    let corrected_yaw = -(euler_x as f64);
-                    
-                    // Use dynamic current_base_speed from distance controller
-                    let commands_yaw: YawCommands = yaw_control.compute_motor_commands(
-                        corrected_yaw, 
-                        target_yaw, 
-                        current_base_speed, 
-                    );
-
-                    if let Some(rpm_left) = sensor_data.rpm_left {
-                        let commands_rpm: RpmCommands = rpm_control.compute_motor_commands(
-                            rpm_left as f64, 
-                            target_rpm, 
-                            1300, 
-                        );
-
-                        let _ = motor::update_pwm_l(&mut motor_pin_l, commands_rpm.left_pwm_us as i64);
-                        let _ = motor::update_pwm_r(&mut motor_pin_r, commands_yaw.right_pwm_us as i64);
-                    }
-
-                    logger.log_sensor_data(&sensor_data);
-                    display.update_arduino(&mut stdout, &sensor_data)?;
-                }       
-            };
         } 
+
+        // ── Arduino branch (~10 Hz) ───────────────────────────────────────────
+        if arduino_connected {
+            let sensor_data = match arduino_port.as_mut().unwrap().read_data() {
+                Ok(Some(d)) => d,
+                Ok(None) => continue,
+                Err(_) => continue,
+            };
+
+            logger.log_sensor_data(&sensor_data);
+            display.update_arduino(&mut stdout, &sensor_data)?;
+
+            // CALL: Update IMU/Odometer and check for Arrival
+            if let (Some(rpm_l), Some(rpm_r), Some(heading)) = (
+                sensor_data.rpm_left,
+                sensor_data.rpm_right,
+                sensor_data.euler_x,
+            ) {
+                // Feed the latest movement data
+                dist_tracker.update_imu(distance_tracker::ImuSample {
+                    heading_deg: heading as f64,
+                    rpm_left: rpm_l as f64,
+                    rpm_right: rpm_r as f64,
+                });
+
+                // Check if we hit the 5m target
+                let dist_out = dist_tracker.check(target_dist);
+
+                if dist_out.arrived {
+                    println!(
+                        "\n[STOP] Target reached! Traveled {:.3} m. Cutting power.",
+                        dist_out.dist_traveled_m
+                    );
+                    let _ = motor::update_pwm_l(&mut motor_pin_l, 1500);
+                    let _ = motor::update_pwm_r(&mut motor_pin_r, 1500);
+                    rpm_ctrl.reset_trim();
+                    break; // End the benchmark run
+                }
+            }
+
+            // Yaw controller — right motor only
+            if let Some(euler_x) = sensor_data.euler_x {
+                let yaw_cmd: YawCommands = yaw_ctrl.compute_motor_commands(
+                    euler_x as f64,
+                    target_yaw,
+                    base_throttle,
+                );
+                let _ = motor::update_pwm_r(&mut motor_pin_r, yaw_cmd.right_pwm_us as i64);
+            }
+
+            // RPM controller — left motor only
+            if let Some(rpm_l) = sensor_data.rpm_left {
+                let rpm_cmd: RpmCommands = rpm_ctrl.compute_motor_commands(
+                    rpm_l as f64,
+                    target_rpm,
+                    base_throttle,
+                );
+                let _ = motor::update_pwm_l(&mut motor_pin_l, rpm_cmd.left_pwm_us as i64);
+            }
+        }
     }
+
+    Ok(())
 }
