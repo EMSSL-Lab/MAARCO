@@ -32,6 +32,9 @@
 // fn main() -> std::io::Result<()> {
 //     let args = Args::parse();
 
+//     let socket = std::net::UdpSocket::bind("127.0.0.1:0")?; //New code
+
+
 //     let log_file = match args.log_file {
 //         Some(path) => path,
 //         None => {
@@ -48,6 +51,7 @@
 
 //     let gps_connected = gps_port.is_ok();
 //     let arduino_connected = arduino_port.is_ok();
+
 
 //     if !gps_connected && !arduino_connected {
 //         eprintln!("No serial ports connected. Exiting.");
@@ -135,6 +139,31 @@
 //             }
 //             if let Some(sensor_data) = arduino_serial_data.unwrap() {
 //                 // println!("Received sensor data: {:?}", sensor_data);
+
+//                 let msg = format!(
+//                     "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+//                     sensor_data.time_ms.unwrap_or(0),
+//                     sensor_data.voltage_left.unwrap_or(0.0),
+//                     sensor_data.current_left_ma.unwrap_or(0.0),
+//                     sensor_data.voltage_right.unwrap_or(0.0),
+//                     sensor_data.current_right_ma.unwrap_or(0.0),
+//                     sensor_data.motor_current_left.unwrap_or(0.0),
+//                     sensor_data.motor_current_right.unwrap_or(0.0),
+//                     sensor_data.euler_x.unwrap_or(0.0),
+//                     sensor_data.euler_y.unwrap_or(0.0),
+//                     sensor_data.euler_z.unwrap_or(0.0),
+//                     sensor_data.acc_lin_x.unwrap_or(0.0),
+//                     sensor_data.acc_lin_y.unwrap_or(0.0),
+//                     sensor_data.acc_lin_z.unwrap_or(0.0),
+//                     sensor_data.sonar_mm.unwrap_or(0.0),
+//                     sensor_data.tof_mm.unwrap_or(0.0),
+//                     sensor_data.rpm_left.unwrap_or(0.0),
+//                     sensor_data.rpm_right.unwrap_or(0.0),
+//                     sensor_data.rotations_left.unwrap_or(0.0),
+//                     sensor_data.rotations_right.unwrap_or(0.0)
+//                 );
+//                 let _ = socket.send_to(msg.as_bytes(), "127.0.0.1:5005");          
+
 //                 logger.log_sensor_data(&sensor_data);
 //                 display.update_arduino(&mut stdout, &sensor_data)?;
 //             }

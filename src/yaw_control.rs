@@ -10,6 +10,7 @@ pub struct PDController {
 
 pub struct MotorCommands {
     pub right_pwm_us: u64,  // Pulse width in microseconds
+    pub left_pwm_us: u64,   // Left motor PWM (currently unused, set to base speed)
 }
 
 impl PDController{
@@ -58,6 +59,7 @@ pub fn compute_motor_commands(
     current_yaw: f64,
     target_yaw: f64,
     base_speed_right: u64, // Now used as a constant
+    base_speed_left: u64
 ) -> MotorCommands {
     let yaw_correction = self.yaw_calculate(current_yaw, target_yaw);
 
@@ -65,9 +67,11 @@ pub fn compute_motor_commands(
     // If yaw_correction is positive (need to turn right), 
     // subtracting it makes the right motor slower.
     let right_pwm = (base_speed_right as f64 + yaw_correction).clamp(1500.0, 2000.0) as u64;
-
+    let left_pwm = base_speed_left; // Left motor runs at constant speed
     MotorCommands {
         right_pwm_us: right_pwm as u64,
+        left_pwm_us: left_pwm as u64,
+        
     }
 }
 }

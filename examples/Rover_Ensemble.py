@@ -32,22 +32,21 @@ except Exception as e:
 
 # --- 1. Model Loading ---
 MODEL_DIR = os.path.join(home, "MAARCO/examples/Model_py")
+model_files = {
+    "DT":  "terrain_dt_model_80_20_All.pkl",
+    # "GB":  "terrain_gb_model_80_20_All.pkl",
+    "KNN": "terrain_knn_model_80_20_All.pkl",
+    "RF":  "terrain_rf_model_80_20_All.pkl",
+    "SVM": "terrain_svm_model_80_20_All.pkl"
+}
 
-MODEL_PATH_1 = os.path.join(MODEL_DIR, "terrain_dt_model_80_20_All.pkl")
-MODEL_PATH_2 = os.path.join(MODEL_DIR, "terrain_gb_model_80_20_All.pkl")
-MODEL_PATH_3 = os.path.join(MODEL_DIR, "terrain_knn_model_80_20_All.pkl")
-MODEL_PATH_4 = os.path.join(MODEL_DIR, "terrain_rf_model_80_20_All.pkl")
-MODEL_PATH_5 = os.path.join(MODEL_DIR, "terrain_svm_model_80_20_All.pkl")
+models = {}
+for name, filename in model_files.items():
+    path = os.path.join(MODEL_DIR, filename)
+    models[name] = joblib.load(path)
 
-# MODEL_PATH_1 = r"~/MAARCO/examples/Models/terrain_dt_model_80_20_All.pkl"
-# MODEL_PATH_2 = r"~/MAARCO/examples/Models/terrain_gb_model_80_20_All.pkl"
-# MODEL_PATH_3 = r"~/MAARCO/examples/Models/terrain_knn_model_80_20_All.pkl"
-# MODEL_PATH_4 = r"~/MAARCO/examples/Models/terrain_rf_model_80_20_All.pkl"
-# MODEL_PATH_5 = r"~/MAARCO/examples/Models/terrain_svm_model_80_20_All.pkl"
-
-rf_model = joblib.load(MODEL_PATH_4)
-# Get the exact feature order the model was trained on
-expected_features = rf_model.feature_names_in_
+# Use the RF model specifically for feature ordering (assuming they all use the same)
+expected_features = models["RF"].feature_names_in_
 
 # --- 2. Configuration ---
 FS = 10  
@@ -65,6 +64,10 @@ FILTER_CONFIGS = {
 # Feature names mapping to match your MATLAB output names
 SENSOR_NAMES = ['TorqL', 'TorqR', 'IavL', 'IavR', 'AccX', 'AccY', 'AccZ', 'Sonar', 'ToF', 'RPML', 'RPMR', 'rollDeg', 'pitchDeg']
 SUB_NAMES = ['Var','RMS','Skew','P2P','Energy','FFTMean','FFTMax','FFT_FreqMax','FFT_Power','FFT_BW','PSDMean','PSDStd','PSDPower','PSDPeakF']
+
+# Port 5006 for Python -> Rust communication
+PYTHON_SENDER_PORT = 5006
+rust_addr = ("127.0.0.1", PYTHON_SENDER_PORT)
 
 def extract_features_to_df(segment):
     """Processes segment and returns a DataFrame with named features for the model."""
@@ -205,21 +208,33 @@ while True:
             
             # B. Align and Predict
             df_final = df_features[expected_features].fillna(0).replace([np.inf, -np.inf], 0)
-            prediction = rf_model.predict(df_final)[0]
-            confidence = np.max(rf_model.predict_proba(df_final)) * 100
+
+            # C. Collect predictions from all 5 models
+            all_preds = []
+            for name, mdl in models.items():
+                pred = mdl.predict(df_final)[0]
+                all_preds.append(pred)
             
-            print(f"Terrain: {prediction:<12} | Conf: {confidence:.2f}%")
+            # D. Calculate Majority (Mode)
+            # Using pandas to easily find the most frequent string/label
+            final_prediction = pd.Series(all_preds).mode()[0]
+            
+            # E. Calculate "Agreement" (How many models agreed with the winner)
+            agreement_count = all_preds.count(final_prediction)
+            agreement_pct = (agreement_count / 5) * 100
+            
+            # print(f"Majority: {final_prediction:<12} | Agreement: {agreement_pct:.0f}% | Votes: {all_preds}")
+            
+            # Format: "Terrain,Agreement%" e.g., "Gravel,80"
+            message = f"{final_prediction},{agreement_pct:.0f}"
+            sock.sendto(message.encode(), rust_addr)
+
+            print(f"Sent to Rust: {message}")
             new_data_count = 0
+
     except Exception as e:
         # import traceback
         # print(f"CRITICAL ERROR: {e}")
         # traceback.print_exc() # This will show exactly which line in the ML logic failed
         continue
         
-# import socket
-# sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-# sock.bind(("0.0.0.0", 5005))
-# print("Listening on port 5005...")
-# while True:
-#     data, addr = sock.recvfrom(1024)
-#     print(f"ALIVE: Received {len(data)} bytes from {addr}")

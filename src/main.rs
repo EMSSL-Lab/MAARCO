@@ -32,9 +32,6 @@ struct Args {
 fn main() -> std::io::Result<()> {
     let args = Args::parse();
 
-    // let socket = std::net::UdpSocket::bind("127.0.0.1:0")?; //New code
-
-
     let log_file = match args.log_file {
         Some(path) => path,
         None => {
@@ -51,7 +48,6 @@ fn main() -> std::io::Result<()> {
 
     let gps_connected = gps_port.is_ok();
     let arduino_connected = arduino_port.is_ok();
-
 
     if !gps_connected && !arduino_connected {
         eprintln!("No serial ports connected. Exiting.");
@@ -139,10 +135,6 @@ fn main() -> std::io::Result<()> {
             }
             if let Some(sensor_data) = arduino_serial_data.unwrap() {
                 // println!("Received sensor data: {:?}", sensor_data);
-
-                // let msg = format!("{:?}", sensor_data); // Or JSON  //New code
-                // let _ = socket.send_to(msg.as_bytes(), "127.0.0.1:5005");   //New code 
-                
                 logger.log_sensor_data(&sensor_data);
                 display.update_arduino(&mut stdout, &sensor_data)?;
             }
