@@ -22,6 +22,12 @@ impl PDController{
         }
     }
 
+pub fn reset(&mut self) {
+    self.last_error = 0.0;
+    self.last_time = Instant::now();
+}
+
+
 pub fn yaw_calculate(&mut self, current_yaw: f64, target_yaw: f64 ) -> f64 {
 let now = Instant::now();
 //Calculate time passed in seconds

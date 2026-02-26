@@ -38,7 +38,6 @@ pub struct DistanceTracker {
     start_lat: Option<f64>,
     start_lon: Option<f64>,
 
-   
     // Running distance estimate (meters from start).
     // Reset to haversine value on each GPS pulse.
     pub distance_traveled_m: f64,
@@ -70,6 +69,19 @@ impl DistanceTracker {
         }
     }
 
+// New target reset function
+// Called when the rover is re-tasked after arrival
+pub fn reset_for_new_target(&mut self) {
+    self.start_lat = None;
+    self.start_lon = None;
+    self.distance_traveled_m = 0.0;
+    self.velocity_ms = 0.0;
+    self.last_imu_time = None;
+    println!("[DistTrack] Resetting for new target.");
+}
+
+
+
     // ── GPS update (called ~1 Hz) ─────────────────────────────────────────────
     //
     // On the very first call: locks the start position and seeds velocity.
@@ -95,7 +107,7 @@ impl DistanceTracker {
             let start_lon = self.start_lon.unwrap();
             self.distance_traveled_m = haversine(start_lat, start_lon, lat, lon);
 
-            // Re-seed velocity from GPS (drift correction)
+            // Re-seed velocity from GPS (drift correction), also convert speed to m/s
             self.velocity_ms = speed_kmh / 3.6;
 
             println!(
@@ -106,7 +118,7 @@ impl DistanceTracker {
         
     }
 
-    // ── IMU / RPM update (called ~10 Hz) ─────────────────────────────────────
+    // ── IMU & RPM update (called ~10 Hz) ─────────────────────────────────────
     //
     // Computes Δdistance via two methods, takes a weighted average,
     // and accumulates into distance_traveled_m.
@@ -164,7 +176,7 @@ impl DistanceTracker {
         self.distance_traveled_m += delta_fused.max(0.0); // clamp out negatives
 
         // ── 5. Integrate velocity for next step ──────────────────────────────
-        // May want to consider removing this line, since accel is a magnitude, it can
+        // ***May want to consider removing this line, since accel is a magnitude, it can
         // only increase velocity, never decrease it. This could lead to overestimation of distance traveled.
         self.velocity_ms = (self.velocity_ms + accel * dt).max(0.0);
 

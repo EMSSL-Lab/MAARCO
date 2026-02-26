@@ -36,6 +36,32 @@ struct Args {
     #[arg(long)]
     log_file: Option<PathBuf>,
 }
+/// NEW*** Prompts user for a new target distance and yaw heading after arrival, for retasking.
+/// Returns (new_distance, new_yaw).
+fn prompt_retask() -> (f64, f64, f64) {
+    let mut buf = String::new();
+
+    println!("\n ------------------------------------------------------------------------------------------");
+    println!("Enter new target distance in meters:");
+    io::stdin().read_line(&mut buf).expect("Failed to read line");
+    let new_dist: f64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
+
+    println!("Enter new target yaw heading in degrees:");
+    io::stdin().read_line(&mut buf).expect("Failed to read line");
+    let new_yaw: f64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
+
+    println!("Enter new target left motor RPM:");
+    io::stdin().read_line(&mut buf).expect("Failed to read line");
+    let new_rpm: f64 = buf.trim().parse().expect("Invalid number");
+
+    println!("New leg: {:.1} m | New heading: {:.1} degrees | New target rpm: {:.1}  Starting...", new_dist, new_yaw, new_rpm);
+    println!(" ------------------------------------------------------------------------------------------\n");
+    
+    (new_dist, new_yaw, new_rpm)
+
+} 
 
 fn main() -> std::io::Result<()> {
     let args = Args::parse();
@@ -97,7 +123,7 @@ fn main() -> std::io::Result<()> {
 
     println!("Enter target yaw heading in degrees (0=North, 90=East):");
     io::stdin().read_line(&mut buf)?;
-    let target_yaw: f64 = buf.trim().parse().expect("Invalid number");
+    let mut target_yaw: f64 = buf.trim().parse().expect("Invalid number");
     buf.clear();
 
     println!("Enter RPM proportional gain (Kp):");
@@ -112,12 +138,12 @@ fn main() -> std::io::Result<()> {
 
     println!("Enter target left motor RPM:");
     io::stdin().read_line(&mut buf)?;
-    let target_rpm: f64 = buf.trim().parse().expect("Invalid number");
+    let mut target_rpm: f64 = buf.trim().parse().expect("Invalid number");
     buf.clear();
 
     println!("Enter target distance in meters:");
     io::stdin().read_line(&mut buf)?;
-    let target_dist: f64 = buf.trim().parse().expect("Invalid number");
+    let mut target_dist: f64 = buf.trim().parse().expect("Invalid number");
     buf.clear();
 
     // base_throttle: fixed for the whole run.
@@ -253,8 +279,22 @@ fn main() -> std::io::Result<()> {
                     );
                     let _ = motor::update_pwm_l(&mut motor_pin_l, 1500);
                     let _ = motor::update_pwm_r(&mut motor_pin_r, 1500);
+                   
+
+                    // Retask prompt
+                    // Rover stays stopped until user inputs new target distance, yaw and rpm
+                    let (new_dist, new_yaw, new_rpm) = prompt_retask();
+                    target_dist = new_dist;
+                    target_yaw = new_yaw;
+                    target_rpm = new_rpm;
+                    
+
+                    // Reset controllers 
+                    dist_tracker.reset_for_new_target();
                     rpm_ctrl.reset_trim();
-                    break;
+                    rpm_ctrl.reset();
+                    yaw_ctrl.reset();
+
                 }
 
             }

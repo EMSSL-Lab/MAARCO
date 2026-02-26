@@ -27,6 +27,11 @@ impl PDController {
         self.trim = 0.0;
     }
 
+    pub fn reset(&mut self) {
+        self.last_error = 0.0;
+        self.last_time = Instant::now();
+    }
+
     /// Holds left motor at target_rpm using feedback from measured rpm_left.
     /// base_speed (1500–2000) is mirrored around 1500 to get the left baseline.
     /// Trim accumulates to compensate for persistent terrain slip.
