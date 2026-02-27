@@ -1,0 +1,7 @@
+timestamp,prediction,confidence
+7.7,DrySand,95.62
+8.64,HardIce,65.47
+9.64,HardIce,72.91
+10.64,HardIce,92.13
+11.64,HardIce,93.16
+12.66,HardIce,71.59

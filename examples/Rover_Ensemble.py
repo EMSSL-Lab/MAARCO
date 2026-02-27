@@ -142,6 +142,18 @@ new_data_count = 0
 
 print("System Online. Awaiting data from Rust...")
 
+# --- 4. CSV Logging Configuration ---
+LOG_FILE = "live_terrain_predictions.csv"
+fieldnames = ['timestamp', 'prediction', 'confidence']
+
+# Create the file and write the header
+with open(LOG_FILE, mode='w', newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=fieldnames)
+    writer.writeheader()
+
+start_time = time.time() # To track relative time
+
+
 while True:
     data, addr = sock.recvfrom(1024)
     try:
@@ -225,8 +237,19 @@ while True:
             
             # print(f"Majority: {final_prediction:<12} | Agreement: {agreement_pct:.0f}% | Votes: {all_preds}")
             
+            # --- C. Log to CSV ---
+            current_elapsed = time.time() - start_time
+            with open(LOG_FILE, mode='a', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writerow({
+                    'timestamp': round(current_elapsed, 2),
+                    'prediction': final_prediction,
+                    'confidence': round(agreement_pct, 2)
+                })
+
+
             # Format: "Terrain,Agreement%" e.g., "Gravel,80"
-            message = f"{final_prediction},{agreement_pct:.0f}"
+            message = f"{current_elapsed:>6.1f}s |{final_prediction:<12} | {agreement_pct:.2f}%"
             sock.sendto(message.encode(), rust_addr)
 
             print(f"Sent to Rust: {message}")

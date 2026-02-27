@@ -23,6 +23,11 @@ impl PDController{
         }
     }
 
+    pub fn update_gains(&mut self, new_kp: f64, new_kd: f64) {
+        self.kp = new_kp;
+        self.kd = new_kd;
+    }
+    
 pub fn yaw_calculate(&mut self, current_yaw: f64, target_yaw: f64 ) -> f64 {
 let now = Instant::now();
 //Calculate time passed in seconds

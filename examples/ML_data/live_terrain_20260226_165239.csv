@@ -1,0 +1,4 @@
+timestamp,prediction,confidence,yaw,kp,kd
+19.22,WetSand,84.0,-0.5,2.0,0.2
+26.58,WetSand,85.33,-0.6899999976158142,2.0,0.2
+34.08,WetSand,85.33,-0.8799999952316284,2.0,0.2

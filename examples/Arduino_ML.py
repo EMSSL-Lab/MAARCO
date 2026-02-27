@@ -6,6 +6,10 @@ import pandas as pd
 from scipy.signal import savgol_filter, periodogram
 from scipy.stats import skew
 from collections import deque
+from datetime import datetime
+
+import csv
+import time
 
 np.seterr(all='ignore') # Mutes all math warnings globally
 
@@ -33,21 +37,100 @@ except Exception as e:
 # --- 1. Model Loading ---
 MODEL_DIR = os.path.join(home, "MAARCO/examples/Model_py")
 
-MODEL_PATH_1 = os.path.join(MODEL_DIR, "terrain_dt_model_80_20_All.pkl")
-MODEL_PATH_2 = os.path.join(MODEL_DIR, "terrain_gb_model_80_20_All.pkl")
-MODEL_PATH_3 = os.path.join(MODEL_DIR, "terrain_knn_model_80_20_All.pkl")
-MODEL_PATH_4 = os.path.join(MODEL_DIR, "terrain_rf_model_80_20_All.pkl")
-MODEL_PATH_5 = os.path.join(MODEL_DIR, "terrain_svm_model_80_20_All.pkl")
+# MODEL_PATH_1 = os.path.join(MODEL_DIR, "terrain_dt_model_80_20_All.pkl")
+# MODEL_PATH_2 = os.path.join(MODEL_DIR, "terrain_gb_model_80_20_All.pkl")
+# MODEL_PATH_3 = os.path.join(MODEL_DIR, "terrain_knn_model_80_20_All.pkl")
+# MODEL_PATH_4 = os.path.join(MODEL_DIR, "terrain_rf_model_80_20_All.pkl")
+# MODEL_PATH_5 = os.path.join(MODEL_DIR, "terrain_svm_model_80_20_All.pkl")
 
-# MODEL_PATH_1 = r"~/MAARCO/examples/Models/terrain_dt_model_80_20_All.pkl"
-# MODEL_PATH_2 = r"~/MAARCO/examples/Models/terrain_gb_model_80_20_All.pkl"
-# MODEL_PATH_3 = r"~/MAARCO/examples/Models/terrain_knn_model_80_20_All.pkl"
-# MODEL_PATH_4 = r"~/MAARCO/examples/Models/terrain_rf_model_80_20_All.pkl"
-# MODEL_PATH_5 = r"~/MAARCO/examples/Models/terrain_svm_model_80_20_All.pkl"
+# Map user input to file paths
+MODELS = {
+    "1": ("Decision Tree All", "terrain_dt_model_80_20_All.pkl"),
+    "2": ("Gradient Boosting All", "terrain_gb_model_80_20_All.pkl"),
+    "3": ("K-Nearest Neighbors All", "terrain_knn_model_80_20_All.pkl"),
+    "4": ("Random Forest All", "terrain_rf_model_80_20_All.pkl"),
+    "5": ("SVM All", "terrain_svm_model_80_20_All.pkl"),
 
-rf_model = joblib.load(MODEL_PATH_4)
+    "6": ("Decision Tree TOF", "terrain_dt_model_80_20_TOF.pkl"),
+    "7": ("Gradient Boosting TOF", "terrain_gb_model_80_20_TOF.pkl"),
+    "8": ("K-Nearest Neighbors TOF", "terrain_knn_model_80_20_TOF.pkl"),
+    "9": ("Random Forest TOF", "terrain_rf_model_80_20_TOF.pkl"),
+    "10": ("SVM TOF", "terrain_svm_model_80_20_TOF.pkl"),
+    
+    "11": ("Decision Tree SON", "terrain_dt_model_80_20_SON.pkl"),
+    "12": ("Gradient Boosting SON", "terrain_gb_model_80_20_SON.pkl"),
+    "13": ("K-Nearest Neighbors SON", "terrain_knn_model_80_20_SON.pkl"),
+    "14": ("Random Forest SON", "terrain_rf_model_80_20_SON.pkl"),
+    "15": ("SVM SON", "terrain_svm_model_80_20_SON.pkl"),
+    
+    "16": ("Decision Tree TO", "terrain_dt_model_80_20_TO.pkl"),
+    "17": ("Gradient Boosting TO", "terrain_gb_model_80_20_TO.pkl"),
+    "18": ("K-Nearest Neighbors TO", "terrain_knn_model_80_20_TO.pkl"),
+    "19": ("Random Forest TO", "terrain_rf_model_80_20_TO.pkl"),
+    "20": ("SVM TO", "terrain_svm_model_80_20_TO.pkl"),
+    
+    "21": ("Decision Tree ST", "terrain_dt_model_80_20_ST.pkl"),
+    "22": ("Gradient Boosting ST", "terrain_gb_model_80_20_ST.pkl"),
+    "23": ("K-Nearest Neighbors ST", "terrain_knn_model_80_20_ST.pkl"),
+    "24": ("Random Forest ST", "terrain_rf_model_80_20_ST.pkl"),
+    "25": ("SVM ST", "terrain_svm_model_80_20_ST.pkl"),
+    
+    "26": ("Decision Tree RT", "terrain_dt_model_80_20_RT.pkl"),
+    "27": ("Gradient Boosting RT", "terrain_gb_model_80_20_RT.pkl"),
+    "28": ("K-Nearest Neighbors RT", "terrain_knn_model_80_20_RT.pkl"),
+    "29": ("Random Forest RT", "terrain_rf_model_80_20_RT.pkl"),
+    "30": ("SVM RT", "terrain_svm_model_80_20_RT.pkl"),
+    
+    "31": ("Decision Tree Acc", "terrain_dt_model_80_20_Acc.pkl"),
+    "32": ("Gradient Boosting Acc", "terrain_gb_model_80_20_Acc.pkl"),
+    "33": ("K-Nearest Neighbors Acc", "terrain_knn_model_80_20_Acc.pkl"),
+    "34": ("Random Forest Acc", "terrain_rf_model_80_20_Acc.pkl"),
+    "35": ("SVM Acc", "terrain_svm_model_80_20_Acc.pkl"),
+
+    "36": ("Decision Tree AR", "terrain_dt_model_80_20_AR.pkl"),
+    "37": ("Gradient Boosting AR", "terrain_gb_model_80_20_AR.pkl"),
+    "38": ("K-Nearest Neighbors AR", "terrain_knn_model_80_20_AR.pkl"),
+    "39": ("Random Forest AR", "terrain_rf_model_80_20_AR.pkl"),
+    "40": ("SVM AR", "terrain_svm_model_80_20_AR.pkl"),
+
+    "41": ("Decision Tree CR", "terrain_dt_model_80_20_CR.pkl"),
+    "42": ("Gradient Boosting CR", "terrain_gb_model_80_20_CR.pkl"),
+    "43": ("K-Nearest Neighbors CR", "terrain_knn_model_80_20_CR.pkl"),
+    "44": ("Random Forest CR", "terrain_rf_model_80_20_CR.pkl"),
+    "45": ("SVM CR", "terrain_svm_model_80_20_CR.pkl"),
+
+
+
+}
+
+print("\n--- Available Terrain Models ---")
+for key, (name, _) in MODELS.items():
+    print(f"[{key}] {name}")
+
+choice = input("Select a model number (default is 4): ") or "4"
+
+if choice in MODELS:
+    selected_name, selected_file = MODELS[choice]
+    MODEL_PATH = os.path.join(MODEL_DIR, selected_file)
+    print(f"Loading {selected_name}...")
+
+    # Load the selected model
+    rf_model = joblib.load(MODEL_PATH)
+    
+    # Safety check for feature names (most scikit-learn models use this)
+    if hasattr(rf_model, "feature_names_in_"):
+        expected_features = rf_model.feature_names_in_
+    else:
+        # Fallback if the model doesn't have names stored (e.g., some older versions)
+        print("Warning: Model does not contain feature names. Ensure feature order is correct.")
+        # You might want to define a hardcoded list here if the model fails
+else:
+    print("Invalid selection. Exiting.")
+    exit()
+
+# rf_model = joblib.load(MODEL_PATH)
 # Get the exact feature order the model was trained on
-expected_features = rf_model.feature_names_in_
+# expected_features = rf_model.feature_names_in_
 
 # --- 2. Configuration ---
 FS = 10  
@@ -134,10 +217,40 @@ def extract_features_to_df(segment):
 # --- 3. Live Loop ---
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind(("0.0.0.0", 5005))
+rust_addr = ("127.0.0.1", 5006)  # <--- ADD THIS LINE
 buffer = deque(maxlen=S)
 new_data_count = 0
 
+
 print("System Online. Awaiting data from Rust...")
+
+# --- 4. CSV Logging Configuration ---
+# Creates a filename like: live_terrain_20260224_1722.csv
+# Create the directory if it doesn't exist
+LOG_DIR = "ML_data"
+if not os.path.exists(LOG_DIR):
+    os.makedirs(LOG_DIR)
+
+timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+# 2. Clean the model name for the filename (remove spaces)
+clean_model_name = selected_name.replace(" ", "_")
+
+# 3. Combine them into the filename
+# Example result: live_terrain_Random_Forest_All_20260226_1705.csv
+LOG_FILE = os.path.join(LOG_DIR, f"live_terrain_{clean_model_name}_{timestamp_str}.csv")
+
+# LOG_FILE = os.path.join(LOG_DIR, f"live_terrain_{timestamp_str}.csv")
+fieldnames = ['timestamp', 'prediction', 'confidence', 'yaw', 'kp', 'kd']
+
+print(f"Logging predictions to: {LOG_FILE}")
+
+# Create the file and write the header
+with open(LOG_FILE, mode='w', newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=fieldnames)
+    writer.writeheader()
+
+start_time = time.time() # To track relative time
 
 while True:
     data, addr = sock.recvfrom(1024)
@@ -147,7 +260,7 @@ while True:
         parts = [float(x) for x in raw_str.split(',')]
         # print(f"Received {len(parts)} ")
 
-        if len(parts) >= 19:
+        if len(parts) >= 21:
             # --- Replicating your MATLAB manual math ---
             # Indices match your list: 0=Time, 5=IavL, 6=IavR, 8=EulY, 9=EulZ, etc.
             
@@ -187,6 +300,9 @@ while True:
             roll_deg = -parts[8]  - roll_correct 
             pitch_deg = parts[9] - pitch_correct 
             
+            yaw = parts[19]
+            kp = parts[20]
+            kd = parts[21]
             # 2. Construct the 13-sensor vector for the ML model
             # Order: [TorqL, TorqR, IavL, IavR, AccX, AccY, AccZ, Sonar, ToF, RPML, RPMR, roll, pitch]
             ml_vector = [
@@ -208,18 +324,33 @@ while True:
             prediction = rf_model.predict(df_final)[0]
             confidence = np.max(rf_model.predict_proba(df_final)) * 100
             
-            print(f"Terrain: {prediction:<12} | Conf: {confidence:.2f}%")
+            # print(f"Terrain: {prediction:<12} | Conf: {confidence:.2f}%")
+            # new_data_count = 0
+
+            # --- C. Log to CSV ---
+            current_elapsed = time.time() - start_time
+            with open(LOG_FILE, mode='a', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writerow({
+                    'timestamp': round(current_elapsed, 2),
+                    'prediction': prediction,
+                    'confidence': round(confidence, 2),
+                    'yaw': yaw,
+                    'kp': kp,
+                    'kd': kd
+                })
+            print(f"Time: {current_elapsed:>6.1f}s | Terrain: {prediction:<12} | Conf: {confidence:.2f}%")
+            # print(f"Time: {current_elapsed:>6.1f}s | Terrain: {prediction:<12} | Conf: {confidence:.2f}%")
+
+            message = f"{current_elapsed},{prediction},{confidence:.0f}"
+            sock.sendto(message.encode(), rust_addr)
+
             new_data_count = 0
+
+
     except Exception as e:
         # import traceback
         # print(f"CRITICAL ERROR: {e}")
         # traceback.print_exc() # This will show exactly which line in the ML logic failed
         continue
         
-# import socket
-# sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-# sock.bind(("0.0.0.0", 5005))
-# print("Listening on port 5005...")
-# while True:
-#     data, addr = sock.recvfrom(1024)
-#     print(f"ALIVE: Received {len(data)} bytes from {addr}")
