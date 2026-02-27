@@ -20,7 +20,7 @@
 use std::time::Instant;
 
 // ── Screw-drive constants ──────────────────────────────────────────────────────
-const SCREW_PITCH_M: f64 = 0.05;        // meters per revolution (physical pitch)
+const SCREW_PITCH_M: f64 = 0.067;        // meters per revolution (physical pitch)
 const SCREW_EFFICIENCY: f64 = 0.75;     // terrain efficiency factor
 const METERS_PER_ROTATION: f64 = SCREW_PITCH_M * SCREW_EFFICIENCY;
 
@@ -165,20 +165,20 @@ pub fn reset_for_new_target(&mut self) {
         let delta_rpm = (avg_rpm / 60.0) * METERS_PER_ROTATION * dt;
 
         // ── 2. Kinematics (constant-acceleration) ────────────────────────────
-        //   a = magnitude of linear acceleration vector from IMU
-        let accel = (acc_x * acc_x + acc_y * acc_y + acc_z * acc_z).sqrt();
-        let delta_kin = self.velocity_ms * dt + 0.5 * accel * dt * dt;
+        //   acceleration in the y is the forward facing direction of the robot 
+        let accel = acc_y;
 
+        let delta_kin = self.velocity_ms * dt + 0.5 * accel * dt * dt;
+        
         // ── 3. Sensor fusion — weighted average ──────────────────────────────
         let delta_fused = RPM_WEIGHT * delta_rpm + KINEMATICS_WEIGHT * delta_kin;
 
         // ── 4. Accumulate ─────────────────────────────────────────────────────
-        self.distance_traveled_m += delta_fused.max(0.0); // clamp out negatives
+        self.distance_traveled_m += delta_fused; 
 
         // ── 5. Integrate velocity for next step ──────────────────────────────
-        // ***May want to consider removing this line, since accel is a magnitude, it can
-        // only increase velocity, never decrease it. This could lead to overestimation of distance traveled.
-        self.velocity_ms = (self.velocity_ms + accel * dt).max(0.0);
+        
+        self.velocity_ms = (self.velocity_ms + accel * dt);
 
         self.output(target_dist_m)
     }
@@ -191,6 +191,7 @@ pub fn reset_for_new_target(&mut self) {
         }
     }
 }
+
 
 // ── Haversine formula ─────────────────────────────────────────────────────────
 // Returns the great-circle distance between two WGS-84 coordinates in meters.

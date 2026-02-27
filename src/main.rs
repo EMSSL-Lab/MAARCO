@@ -249,7 +249,7 @@ fn main() -> std::io::Result<()> {
                 Ok(None) => continue,
                 Err(_) => continue,
             };
-
+            
             logger.log_sensor_data(&sensor_data);
             display.update_arduino(&mut stdout, &sensor_data)?;
 
@@ -288,7 +288,7 @@ fn main() -> std::io::Result<()> {
                     target_yaw = new_yaw;
                     target_rpm = new_rpm;
                     
-
+                    
                     // Reset controllers 
                     dist_tracker.reset_for_new_target();
                     rpm_ctrl.reset_trim();
