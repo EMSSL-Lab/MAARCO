@@ -461,7 +461,7 @@ fn main() -> std::io::Result<()> {
             let msg = String::from_utf8_lossy(&buf[..len]);
             let parts: Vec<&str> = msg.split(',').collect();
             
-            if parts.len() >= 3 {
+            if parts.len() >= 4 {
 
                 let terrain_type = parts[1];
                 // Parse confidence: remove '%' if present and parse to f64
@@ -471,36 +471,42 @@ fn main() -> std::io::Result<()> {
                     &mut stdout, 
                     parts[0].to_string(), // Time
                     parts[1].to_string(), // Terrain
-                    parts[2].to_string()  // Confidence
+                    parts[2].to_string(),  // Confidence
+                    parts[3].to_string(),  // Yaw
                 )?; 
 
                 // Dynamic Gain Switching Logic
-                if confidence > 75.0 {
+                if confidence > 30.0 {
                     match terrain_type {
                         "SoftSnow" => {
                             // Example: Higher P for loose surfaces
-                            yaw_control.update_gains(2.04, 0.18);
+                            yaw_control.update_gains(15.0, 1.5);
                             // println!("Soft Snow PD Controller updated");
                         },
                         "HardIce" => {
-                            yaw_control.update_gains(1.95, 0.17);
+                            yaw_control.update_gains(15.0, 1.5);
                             // println!("Hard Ice PD Controller updated");
                         },
 
                         "WetSand" => {
-                            yaw_control.update_gains(2.45, 0.1);
+                            yaw_control.update_gains(5.0, 0.5);
                             // println!("Wet Sand PD Controller updated");
                         },
 
                         "DrySand" => {
-                            yaw_control.update_gains(2.44, 0.2);
+                            // yaw_control.update_gains(3.2, 0.2);
+                            // yaw_control.update_gains(3.2, 0.4);
+                            // yaw_control.update_gains(3.6, 0.6);
+                            yaw_control.update_gains(15.0, 1.5);
+
+                            
                             // println!("Dry Sand PD Controller updated");
                         },
                         
                         _ => {
                             // This handles any terrain type not explicitly listed above
                             // Use your "safe" or "average" default gains here
-                            yaw_control.update_gains(2.0, 0.2);
+                            yaw_control.update_gains(15.0, 1.5);
                             // println!("Unknown terrain type - using default PD gains");
                             }                      
                     }
@@ -508,7 +514,8 @@ fn main() -> std::io::Result<()> {
 
                 else {
                     // Low confidence - use conservative gains
-                    yaw_control.update_gains(2.5, 0.15);
+                    yaw_control.update_gains(15.0, 1.5);
+                    // yaw_control.update_gains(15.0, 2.5);
                     // println!("Low confidence in terrain prediction - using default PD gains");
                 }
             }

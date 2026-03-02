@@ -35,7 +35,7 @@ except Exception as e:
     p_coeffs = None
 
 # --- 1. Model Loading ---
-MODEL_DIR = os.path.join(home, "MAARCO/examples/Model_py")
+MODEL_DIR = os.path.join(home, "MAARCO/examples/Model_Old")
 
 # MODEL_PATH_1 = os.path.join(MODEL_DIR, "terrain_dt_model_80_20_All.pkl")
 # MODEL_PATH_2 = os.path.join(MODEL_DIR, "terrain_gb_model_80_20_All.pkl")
@@ -339,10 +339,10 @@ while True:
                     'kp': kp,
                     'kd': kd
                 })
-            print(f"Time: {current_elapsed:>6.1f}s | Terrain: {prediction:<12} | Conf: {confidence:.2f}%")
+            print(f"Time: {current_elapsed:>6.1f}s | Terrain: {prediction:<12} | Conf: {confidence:.2f}% | yaw: {yaw}")
             # print(f"Time: {current_elapsed:>6.1f}s | Terrain: {prediction:<12} | Conf: {confidence:.2f}%")
 
-            message = f"{current_elapsed},{prediction},{confidence:.0f}"
+            message = f"{current_elapsed},{prediction},{confidence:.0f},{yaw:.2f}"
             sock.sendto(message.encode(), rust_addr)
 
             new_data_count = 0
