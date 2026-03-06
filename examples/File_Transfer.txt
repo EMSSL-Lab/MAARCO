@@ -1,6 +1,21 @@
+How to Compile Rust Project: 
+cargo build --release
+cargo build --target aarch64-unknown-linux-gnu --release
+
+How to send files from computer to Pi:
+scp target/aarch64-unknown-linux-gnu/release/maarco pi4b@172.20.10.6:~/MAARCO
+scp /home/jcohe/MAARCO/examples/Arduino_ML.py  pi4b@172.20.10.6:~/MAARCO/examples
+scp -r /home/jcohe/MAARCO/examples/Model_Old pi4b@172.20.10.6:~/MAARCO/examples
+
+How to send files from pi to computer:
 scp -r pi4b@172.20.10.6:~/MAARCO/examples/ML_data /home/jcohe/MAARCO/examples
 
+Copying folder from WSL to windows
+cp -r /home/jcohe/MAARCO/examples/ML_data /mnt/c/Users/jcohe/OneDrive/Documents/Python_Projects/PhD_Research/Data_Review/Classifier
+
+Git Commands
 git pull origin Julian --no-rebase
 git add .
 git push origin Julian
-git commit -m ""
+git commit -m "Updated models and live terrain logs"
+git push origin Julian --force
