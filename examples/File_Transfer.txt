@@ -13,7 +13,7 @@ scp -r pi4b@172.20.10.6:~/MAARCO/examples/ML_data /home/jcohe/MAARCO/examples
 Copying folder from WSL to windows
 cp -r /home/jcohe/MAARCO/examples/ML_data /mnt/c/Users/jcohe/OneDrive/Documents/Python_Projects/PhD_Research/Data_Review/Classifier
 
-Git Commands
+Git Commands, specifically to my branch
 git pull origin Julian --no-rebase
 git add .
 git push origin Julian
