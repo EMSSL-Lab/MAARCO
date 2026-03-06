@@ -19,3 +19,13 @@ git add .
 git push origin Julian
 git commit -m "Updated models and live terrain logs"
 git push origin Julian --force
+
+Running MAARCO RTACS:
+
+cd MAARCO/examples
+uv run python Arduino_ML.py
+select model
+
+cd MAARCO
+./maarco 
+input left pwm
