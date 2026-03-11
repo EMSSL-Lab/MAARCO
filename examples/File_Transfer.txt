@@ -16,7 +16,7 @@ cp -r /home/jcohe/MAARCO/examples/ML_data /mnt/c/Users/jcohe/OneDrive/Documents/
 Git Commands, specifically to my branch
 git pull origin Julian --no-rebase
 git add .
-git push origin Julian
+git push origin Julian --force
 git commit -m "Updated models and live terrain logs"
 git push origin Julian --force
 
