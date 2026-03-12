@@ -14,6 +14,7 @@ pub struct Display {
     prev_lines: u16,
     last_gps: Option<(Nmea, Option<String>)>,
     last_arduino: Option<SensorData>,
+    distance_estimator: Option<f32>,
 }
 
 enum DisplayItem {
@@ -28,12 +29,23 @@ impl Display {
             prev_lines: 0,
             last_gps: None,
             last_arduino: None,
+            distance_estimator: None,
         }
     }
 
+    pub fn update_distance<W: Write>(
+        &mut self,
+        stdout: &mut W,
+        distance: f32,
+    ) -> std::io::Result<()> {
+        self.distance_estimator = Some(distance);
+        self.render(stdout)
+    }  
+
+
     // Private helper to render a list of DisplayItems
     fn render<W: Write>(&mut self, stdout: &mut W) -> std::io::Result<()> {
-        let mut items = Vec::new();
+        let mut items = Vec::new();  
 
         // GPS Data
         if let Some((parser, gga_fix_quality)) = &self.last_gps {
@@ -237,7 +249,18 @@ impl Display {
                 fmt_f32(arduino_data.rotations_right),
                 None,
             ));
+
+            
         }
+
+        if let Some(distance) = self.distance_estimator {
+        items.push(DisplayItem::Data(
+                "Estimated Distance Traveled".to_string(),
+                format!("{:.3}",distance),
+                Some("m".to_string())
+            ));    
+        }
+     
 
         let max_len = items
             .iter()

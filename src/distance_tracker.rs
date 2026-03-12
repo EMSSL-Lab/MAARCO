@@ -20,13 +20,13 @@
 use std::time::Instant;
 
 // ── Screw-drive constants ──────────────────────────────────────────────────────
-const SCREW_PITCH_M: f64 = 0.067;        // meters per revolution (physical pitch)
-const SCREW_EFFICIENCY: f64 = 0.75;     // terrain efficiency factor
-const METERS_PER_ROTATION: f64 = SCREW_PITCH_M * SCREW_EFFICIENCY;
+// const SCREW_PITCH_M: f64 = 0.067;        // meters per revolution (physical pitch)
+// const SCREW_EFFICIENCY: f64 = 0.75;     // terrain efficiency factor
+// const METERS_PER_ROTATION: f64 = SCREW_PITCH_M * SCREW_EFFICIENCY;
 
 // ── Sensor-fusion weights (must sum to 1.0) ───────────────────────────────────
-const RPM_WEIGHT: f64 = 0.6;
-const KINEMATICS_WEIGHT: f64 = 0.4;
+// const RPM_WEIGHT: f64 = 0.6;
+// const KINEMATICS_WEIGHT: f64 = 0.4;
 
 // ── Arrival threshold ─────────────────────────────────────────────────────────
 const ARRIVAL_THRESHOLD_M: f64 = 0.2;
@@ -127,11 +127,9 @@ pub fn reset_for_new_target(&mut self) {
     // Returns DistanceOutput so main.rs can check arrival and act.
     pub fn update_imu(
         &mut self,
-        rpm_left: f64,
-        rpm_right: f64,
-        acc_x: f64,
+        // rpm_left: f64,
+        // rpm_right: f64,
         acc_y: f64,
-        acc_z: f64,
         target_dist_m: f64,
     ) -> DistanceOutput {
         // ── Compute dt ──────────────────────────────────────────────────────
@@ -161,8 +159,8 @@ pub fn reset_for_new_target(&mut self) {
 
         // ── 1. RPM odometry ──────────────────────────────────────────────────
         //   average screw RPM → rotations/s → meters in dt
-        let avg_rpm = (rpm_left + rpm_right) / 2.0;
-        let delta_rpm = (avg_rpm / 60.0) * METERS_PER_ROTATION * dt;
+        // let avg_rpm = (rpm_left + rpm_right) / 2.0;
+        //let delta_rpm = (avg_rpm / 60.0) * METERS_PER_ROTATION * dt;
 
         // ── 2. Kinematics (constant-acceleration) ────────────────────────────
         //   acceleration in the y is the forward facing direction of the robot 
@@ -171,18 +169,18 @@ pub fn reset_for_new_target(&mut self) {
         let delta_kin = self.velocity_ms * dt + 0.5 * accel * dt * dt;
         
         // ── 3. Sensor fusion — weighted average ──────────────────────────────
-        let delta_fused = RPM_WEIGHT * delta_rpm + KINEMATICS_WEIGHT * delta_kin;
+        // let delta_fused = RPM_WEIGHT * delta_rpm + KINEMATICS_WEIGHT * delta_kin;
 
         // ── 4. Accumulate ─────────────────────────────────────────────────────
-        self.distance_traveled_m += delta_fused; 
+        self.distance_traveled_m += delta_kin; 
 
         // ── 5. Integrate velocity for next step ──────────────────────────────
         
-        self.velocity_ms = (self.velocity_ms + accel * dt);
+        self.velocity_ms = self.velocity_ms + accel * dt;
 
         self.output(target_dist_m)
     }
-
+    
     // ── Internal helper ───────────────────────────────────────────────────────
     fn output(&self, target_dist_m: f64) -> DistanceOutput {
         DistanceOutput {
