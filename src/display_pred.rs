@@ -15,6 +15,7 @@ pub struct Display {
     last_gps: Option<(Nmea, Option<String>)>,
     last_ntrip: String,
     last_arduino: Option<SensorData>,
+    last_ml_prediction: Option<(String,String, String,String)>, // (Terrain, Confidence/Agreement)
 }
 
 enum DisplayItem {
@@ -30,7 +31,21 @@ impl Display {
             last_gps: None,
             last_ntrip: String::from("No connection"),
             last_arduino: None,
+            last_ml_prediction: None, // Initialize
         }
+    }
+
+        // Add a specific update method
+    pub fn update_ml<W: Write>(
+        &mut self,
+        stdout: &mut W,
+        time: String,
+        terrain: String,
+        confidence: String,
+        yaw: String,
+    ) -> std::io::Result<()> {
+        self.last_ml_prediction = Some((time,terrain, confidence, yaw));
+        self.render(stdout)
     }
 
     // Private helper to render a list of DisplayItems
@@ -137,7 +152,7 @@ impl Display {
                 Color::Yellow,
             ));
         }
-
+        
         // Arduino Data
         if let Some(arduino_data) = &self.last_arduino {
             let fmt_f32 = |val: Option<f32>| -> String {
@@ -250,6 +265,34 @@ impl Display {
             ));
         }
 
+        if let Some((time,terrain, confidence, yaw)) = &self.last_ml_prediction {
+            items.push(DisplayItem::Header(
+                "=== ML CLASSIFICATION ===".to_string(),
+                Color::Cyan,
+            ));
+            items.push(DisplayItem::Data(
+                "Time".to_string(),
+                time.clone(),
+                None,
+            ));
+            items.push(DisplayItem::Data(
+                "Predicted Terrain".to_string(),
+                terrain.clone(),
+                None,
+            ));
+            items.push(DisplayItem::Data(
+                "Model Agreement".to_string(),
+                confidence.clone(),
+                Some("%".to_string()),
+            ));
+            items.push(DisplayItem::Data(
+                "Yaw".to_string(),
+                yaw.clone(),
+                Some("°".to_string()),
+            ));
+        }
+
+
         let max_len = items
             .iter()
             .filter_map(|item| {
@@ -312,7 +355,7 @@ impl Display {
 
         Ok(())
     }
-
+    
     pub fn update_gps<W: Write>(
         &mut self,
         stdout: &mut W,
