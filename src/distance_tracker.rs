@@ -28,10 +28,12 @@ use std::time::Instant;
 // const RPM_WEIGHT: f64 = 0.6;
 // const KINEMATICS_WEIGHT: f64 = 0.4;
 
-// ── Arrival threshold ─────────────────────────────────────────────────────────
+// Arrival threshold 
 const ARRIVAL_THRESHOLD_M: f64 = 0.2;
-
-// ─────────────────────────────────────────────────────────────────────────────
+// Filtering const between 0 and 1. Lower value leads to more heavy filtering 
+const ALPHA: f64 = 0.5;
+// acceleration due to gravity
+const G: f64 = 9.81; // m/s^2
 
 pub struct DistanceTracker {
     // Start position (set once on first GPS fix, never changes)
@@ -48,6 +50,8 @@ pub struct DistanceTracker {
 
     // Timestamp of the last update_imu() call (for dt calculation)
     last_imu_time: Option<Instant>,
+    // Previous acceleration reading 
+    accel_last: f64,
 }
 
 /// Returned by update_imu() on every 10 Hz tick.
@@ -66,6 +70,7 @@ impl DistanceTracker {
             distance_traveled_m: 0.0,
             velocity_ms: 0.0,
             last_imu_time: None,
+            accel_last: 0.0,
         }
     }
 
@@ -77,6 +82,7 @@ pub fn reset_for_new_target(&mut self) {
     self.distance_traveled_m = 0.0;
     self.velocity_ms = 0.0;
     self.last_imu_time = None;
+    self.accel_last = 0.0;
     println!("[DistTrack] Resetting for new target.");
 }
 
@@ -130,6 +136,7 @@ pub fn reset_for_new_target(&mut self) {
         // rpm_left: f64,
         // rpm_right: f64,
         acc_y: f64,
+        pitch_deg: f64,
         target_dist_m: f64,
     ) -> DistanceOutput {
         // ── Compute dt ──────────────────────────────────────────────────────
@@ -164,9 +171,14 @@ pub fn reset_for_new_target(&mut self) {
 
         // ── 2. Kinematics (constant-acceleration) ────────────────────────────
         //   acceleration in the y is the forward facing direction of the robot 
-        let accel = acc_y;
+        let gravity_component = G*pitch_deg.to_radians().sin();
+        let accel = acc_y - gravity_component;
+        // NEW*** Add Exponential Moving Average Low Pass Filter 
+        let accel_filtered = ALPHA*accel+(1.0-ALPHA)*self.accel_last;
+        self.accel_last = accel_filtered;
 
-        let delta_kin = self.velocity_ms * dt + 0.5 * accel * dt * dt;
+
+        let delta_kin = self.velocity_ms * dt + 0.5 * accel_filtered * dt * dt;
         
         // ── 3. Sensor fusion — weighted average ──────────────────────────────
         // let delta_fused = RPM_WEIGHT * delta_rpm + KINEMATICS_WEIGHT * delta_kin;
@@ -177,7 +189,7 @@ pub fn reset_for_new_target(&mut self) {
         // ── 5. Integrate velocity for next step ──────────────────────────────
         
         self.velocity_ms = self.velocity_ms + accel * dt;
-
+        
         self.output(target_dist_m)
     }
     

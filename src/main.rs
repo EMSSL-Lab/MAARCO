@@ -254,15 +254,17 @@ fn main() -> std::io::Result<()> {
             display.update_arduino(&mut stdout, &sensor_data)?;
 
             // NEW DISTANCE CONTROLLER UPDATE ─────────────────────────────────────────
-              if let Some(ay) = 
-                sensor_data.acc_lin_y
-             {
+              if let (Some(ay),Some(pitch)) = 
+                (sensor_data.acc_lin_y,sensor_data.euler_y) {
+             
                 let dist_out = dist_tracker.update_imu(
                     // rpm_l as f64,
                     // rpm_r as f64,
-                    ay as f64,
+                ay as f64,
+                    pitch as f64,
                     target_dist,
                 );
+                
                 
                 display.update_distance(&mut stdout, dist_out.dist_traveled_m as f32)?;
 
