@@ -1,7 +1,6 @@
 How to Compile Rust Project: 
-cargo build --release
-cargo build --target aarch64-unknown-linux-gnu --release
-
+cargo build --release --bin maarco_yaw_wptrack
+ cargo build --target aarch64-unknown-linux-gnu --release --bin maarco_yaw_wptrack
 How to send files from computer to Pi:
 scp target/aarch64-unknown-linux-gnu/release/maarco pi4b@172.20.10.6:~/MAARCO
 scp /home/jcohe/MAARCO/examples/Arduino_ML.py  pi4b@172.20.10.6:~/MAARCO/examples

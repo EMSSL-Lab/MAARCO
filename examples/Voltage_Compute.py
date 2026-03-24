@@ -2,19 +2,20 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
-# --- 1. PHYSICAL PARAMETERS ---
+# --- PHYSICAL PARAMETERS --- Change
 MASS = 5.0           # kg
-INERTIA = 0.08       # kg*m^2
+INERTIA = 0.08       # kg*m^2  approx 1/12 * m * w^2
 TRACK_WIDTH = 0.2    # meters
 D = TRACK_WIDTH / 2
 WHEEL_RADIUS = 0.0127 # 0.5 inch in meters
 
-# --- 2. MOTOR CONSTANTS (RB-Dfr-444) ---
-V_BUS = 12.0
-R_OHMS = 1.71
-KT = 0.265
-KE = 0.456
-V_FR = 0.6           # Friction compensation voltage
+# --- MOTOR CONSTANTS (RB-Dfr-444) ---
+V_BUS = 12.0          # Battery Voltage [V]
+R_OHMS = 1.71         # Internal Resistance:  12V/7A (stall current)
+KT = 0.265            # Torque Constant [N-m/A] delta tau/delta current = 250/(7-0.35) oz-in/A -> Nm/A
+KE = 0.456            # Back EMF Constant [V-s/rad], battery voltage/no load speed 12V/251rpm(rad/s)  
+GEAR_RATIO = 43.8     # Internal Gear Ratio
+V_FR = 0.6            # Friction compensation voltage (no load current: 0.35A * R_ohms internal resistance)
 
 class RobotController:
     def __init__(self):
@@ -40,7 +41,25 @@ def calculate_motor_logic(F_total, tau_total, v_curr, omega_curr, V_measured):
     # Kinematics to find wheel speeds
     omega_w_r = (v_curr + (omega_curr * D)) / WHEEL_RADIUS
     omega_w_l = (v_curr - (omega_curr * D)) / WHEEL_RADIUS
-    
+        
+    # # Coefficients from your MATLAB polyfit(RPM_mean, iR_mean, 5)
+    # P_COEFFS = [1.2e-9, -5.4e-7, 2.1e-5, ...] 
+
+    # def get_v_des(F_w, omega_w):
+    #     # Convert rad/s to RPM for the polynomial
+    #     rpm = abs(omega_w * 60 / (2 * np.pi))
+        
+    #     # Calculate expected "No-Load" current at this speed
+    #     i_loss = np.polyval(P_COEFFS, rpm)
+        
+    #     # Dynamic Friction Voltage (instead of a static 0.6V)
+    #     v_friction = i_loss * R_OHMS
+        
+    #     v_torque = (F_w * WHEEL_RADIUS * R_OHMS) / KT
+    #     v_back_emf = KE * omega_w
+        
+    #     return (np.sign(omega_w) * v_friction) + v_torque + v_back_emf
+        
     def get_v_des(F_w, omega_w):
         if abs(F_w) < 0.001 and abs(omega_w) < 0.001: return 0.0
         sgn = np.sign(F_w) if F_w != 0 else np.sign(omega_w)

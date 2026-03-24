@@ -1,5 +1,6 @@
 // src/lib.rs
 pub mod display;
+pub mod display_pred;
 pub mod gps;
 pub mod gps_serial;
 pub mod motor;

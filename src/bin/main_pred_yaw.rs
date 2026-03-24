@@ -238,14 +238,20 @@
 // }
 
 // ==================================== Yaw Control 
-mod display;
-mod gps;
-mod gps_serial;
-mod motor;
-mod logging;
-mod ntrip;
-mod usb_serial;
-mod yaw_control;
+
+use maarco::{
+    display_pred, 
+    gps, 
+    gps_serial, 
+    // Notice we go one level deeper here:
+    logging::Logger, 
+    motor, 
+    ntrip, 
+    usb_serial,
+    yaw_control::{PDController as YawController, MotorCommands as YawCommands},
+};
+
+
 // src/main.rs
 use clap::Parser;
 use crossterm::execute;
@@ -258,8 +264,8 @@ use std::sync::mpsc::{self};
 
 // use std::time::Duration;
 // Replace your current imports with these aliased ones:
-use yaw_control::PDController as YawController;
-use yaw_control::MotorCommands as YawCommands;
+// use yaw_control::PDController as YawController;
+// use yaw_control::MotorCommands as YawCommands;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -292,7 +298,7 @@ fn main() -> std::io::Result<()> {
         }
     };
 
-    let logger = logging::Logger::new(log_file)?;
+    let logger = Logger::new(log_file)?;
     let mut gps_port = gps_serial::open_port(args.gps_port);
     let mut arduino_port = usb_serial::open_port(args.arduino_port);
 
@@ -307,7 +313,7 @@ fn main() -> std::io::Result<()> {
     let mut parser = gps::parser::build_parser();
     let mut gga_fix_quality: Option<String> = None;
     let mut stdout = stdout();
-    let mut display = display::Display::new();
+    let mut display = display_pred::Display::new();
 
     // Initialize terminal
     execute!(stdout, crossterm::cursor::SetCursorStyle::BlinkingBlock)?;

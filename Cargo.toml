@@ -7,6 +7,15 @@ edition = "2024"
 name = "maarco_yaw_wptrack"
 path = "src/bin/main.rs"
 
+[[bin]]
+name = "maarco_orig"
+path = "src/bin/main_orig.rs"
+
+[[bin]]
+name = "maarco_pred_yaw"
+path = "src/bin/main_pred_yaw.rs"
+
+
 [dependencies]
 base64 = "0.22.1"
 chrono = "0.4.42"
