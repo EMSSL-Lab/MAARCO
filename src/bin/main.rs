@@ -199,15 +199,15 @@
 
 
 // ==================================== Yaw Control 
-mod display;
-mod gps;
-mod gps_serial;
-mod motor;
-mod logging;
-mod ntrip;
-mod usb_serial;
-mod yaw_control;
-mod distance_tracker; // Ensure you have the new distance_tracker.rs file
+// mod display;
+// mod gps;
+// mod gps_serial;
+// mod motor;
+// mod logging;
+// mod ntrip;
+// mod usb_serial;
+// mod yaw_control;
+// mod distance_tracker; 
 
 // src/main.rs
 use clap::Parser;
@@ -218,12 +218,25 @@ use std::net::UdpSocket;
 use std::path::PathBuf;
 // use std::sync::mpsc::{self, TryRecvError};
 use std::sync::mpsc::{self};
-
 // use std::time::Duration;
+
 // Replace your current imports with these aliased ones:
-use yaw_control::PDController as YawController;
-use yaw_control::MotorCommands as YawCommands;
-use distance_tracker::DistanceTracker as DistanceTracker;
+// use yaw_control::PDController as YawController;
+// use yaw_control::MotorCommands as YawCommands;
+// use distance_tracker::DistanceTracker as DistanceTracker;
+// Replace your old imports with these:
+use maarco::{
+    display, 
+    gps, 
+    gps_serial, 
+    // Notice we go one level deeper here:
+    logging::Logger, 
+    motor, 
+    ntrip, 
+    usb_serial,
+    yaw_control::{PDController as YawController, MotorCommands as YawCommands},
+    distance_tracker::DistanceTracker,
+};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -256,7 +269,7 @@ fn main() -> std::io::Result<()> {
         }
     };
 
-    let logger = logging::Logger::new(log_file)?;
+    let logger = Logger::new(log_file)?;
     let mut gps_port = gps_serial::open_port(args.gps_port);
     let mut arduino_port = usb_serial::open_port(args.arduino_port);
 
@@ -317,6 +330,8 @@ fn main() -> std::io::Result<()> {
 
     println!("Left motor target PWM: {}", left_target_pwm);
 
+    let mut should_calibrate_heading = false;
+    let mut heading_offset = 0.0;
     loop {
 
         // --- 1. LISTEN FOR WAYPOINTS FROM PYTHON ---
@@ -327,8 +342,16 @@ fn main() -> std::io::Result<()> {
                 "SET_ORIGIN" => {
                     if let (Some(lat), Some(lon)) = (parser.latitude, parser.longitude) {
                         dist_tracker.set_origin(lat, lon);
+                        should_calibrate_heading = true;
                     }
                 },
+                "STOP" => {
+                        is_mission_running = false;
+                        waypoints.clear();
+                        current_wp_idx = 0;
+                        // The control loop will now hit the 'else' and send (1500, 1500)
+                        println!("STOP COMMAND RECEIVED - CLEARING MISSION");
+                    }
                 "START_MISSION" => {
                     is_mission_running = true;
                     println!("Mission Started!");
@@ -389,6 +412,10 @@ fn main() -> std::io::Result<()> {
                 let speed_kmh = (parser.speed_over_ground.unwrap_or(0.0) as f64) * 1.852;
                 if let Some(state) = dist_tracker.update_gps(lat, lon, speed_kmh) {    
                     // Logic to find next heading
+
+                    let telemetry = format!("POS,{},{}", state.x_m, state.y_m);
+                    socket.send_to(telemetry.as_bytes(), "127.0.0.1:5008")?;
+                    
                     if is_mission_running && current_wp_idx < waypoints.len() {
                         let (tx, ty) = waypoints[current_wp_idx];
                         let dx = tx - state.x_m;
@@ -424,7 +451,12 @@ fn main() -> std::io::Result<()> {
             }
             if let Some(sensor_data) = arduino_serial_data.unwrap() {
                 if let Some(euler_x) = sensor_data.euler_x {
-                let corrected_yaw = -(euler_x as f64);
+                if should_calibrate_heading {
+                    heading_offset = -(euler_x as f64);
+                    should_calibrate_heading = false;
+                    println!("Heading Offset Calibrated: {}°", heading_offset);
+                }    
+                let corrected_yaw = -(euler_x as f64) - heading_offset;
                 // Call controller to command right motor speed
                 let current_kp = yaw_control.kp; // or yaw_control.get_kp()
                 let current_kd = yaw_control.kd; // or yaw_control.get_kd()
