@@ -31,7 +31,7 @@ use std::time::Instant;
 // Arrival threshold 
 const ARRIVAL_THRESHOLD_M: f64 = 0.2;
 // Filtering const between 0 and 1. Lower value leads to more heavy filtering 
-const ALPHA: f64 = 0.5;
+const ALPHA: f64 = 0.2;
 // acceleration due to gravity
 const G: f64 = 9.81; // m/s^2
 

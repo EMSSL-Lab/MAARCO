@@ -111,30 +111,30 @@ fn main() -> std::io::Result<()> {
 
     let mut buf = String::new();
 
-    println!("Enter Yaw proportional gain (Kp):");
-    io::stdin().read_line(&mut buf)?;
-    let kp_yaw: f64 = buf.trim().parse().expect("Invalid number");
-    buf.clear();
+    // println!("Enter Yaw proportional gain (Kp):");
+    // io::stdin().read_line(&mut buf)?;
+    // let kp_yaw: f64 = buf.trim().parse().expect("Invalid number");
+    // buf.clear();
 
-    println!("Enter Yaw derivative gain (Kd):");
-    io::stdin().read_line(&mut buf)?;
-    let kd_yaw: f64 = buf.trim().parse().expect("Invalid number");
-    buf.clear();
+    // println!("Enter Yaw derivative gain (Kd):");
+    // io::stdin().read_line(&mut buf)?;
+    // let kd_yaw: f64 = buf.trim().parse().expect("Invalid number");
+    // buf.clear();
 
     println!("Enter target yaw heading in degrees (0=North, 90=East):");
     io::stdin().read_line(&mut buf)?;
     let mut target_yaw: f64 = buf.trim().parse().expect("Invalid number");
     buf.clear();
 
-    println!("Enter RPM proportional gain (Kp):");
-    io::stdin().read_line(&mut buf)?;
-    let kp_rpm: f64 = buf.trim().parse().expect("Invalid number");
-    buf.clear();
+    // println!("Enter RPM proportional gain (Kp):");
+    // io::stdin().read_line(&mut buf)?;
+    // let kp_rpm: f64 = buf.trim().parse().expect("Invalid number");
+    // buf.clear();
 
-    println!("Enter RPM derivative gain (Kd):");
-    io::stdin().read_line(&mut buf)?;
-    let kd_rpm: f64 = buf.trim().parse().expect("Invalid number");
-    buf.clear();
+    // println!("Enter RPM derivative gain (Kd):");
+    // io::stdin().read_line(&mut buf)?;
+    // let kd_rpm: f64 = buf.trim().parse().expect("Invalid number");
+    // buf.clear();
 
     println!("Enter target left motor RPM:");
     io::stdin().read_line(&mut buf)?;
@@ -148,13 +148,19 @@ fn main() -> std::io::Result<()> {
 
     // base_throttle: fixed for the whole run.
     // Not touched by any controller — only dist_ctrl can override it to 1500
-    // on arrival.
+    // on arrival
     println!("Enter base throttle PWM (1500=stop, 2000=full forward):");
     io::stdin().read_line(&mut buf)?;
     let base_throttle: u64 = buf.trim().parse().expect("Invalid number");
     buf.clear();
     // ─────────────────────────────────────────────────────────────────────────
 
+    // Set controller gains here
+    let kp_yaw: f64 = 2.0;
+    let kd_yaw: f64 = 0.2;
+    let kp_rpm: f64 = 15.0;
+    let kd_rpm: f64 = 1.5;
+    
     
     // Initialize control variables
     let mut yaw_ctrl  = YawController::new(kp_yaw, kd_yaw);
@@ -255,7 +261,7 @@ fn main() -> std::io::Result<()> {
 
             // NEW DISTANCE CONTROLLER UPDATE ─────────────────────────────────────────
               if let (Some(ay),Some(pitch)) = 
-                (sensor_data.acc_lin_y,sensor_data.euler_y) {
+                (sensor_data.acc_lin_y,sensor_data.euler_z) {
              
                 let dist_out = dist_tracker.update_imu(
                     // rpm_l as f64,
