@@ -9,3 +9,4 @@ pub mod ntrip;
 pub mod usb_serial;
 pub mod yaw_control;
 pub mod distance_tracker;
+pub mod distance_tracker_EKF;

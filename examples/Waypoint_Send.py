@@ -8,6 +8,7 @@ PYTHON_LISTEN_ADDR = ("0.0.0.0", 5008)
 class MissionControl:
     def __init__(self):
         self.screen = turtle.Screen()
+        
         self.screen.setup(width=0.9, height=0.9)
         self.screen.bgcolor("#2c3e50")
         self.screen.title("Rover GCS - [1] Start | [2] Clear | [3] STOP | [4] Set Origin")
