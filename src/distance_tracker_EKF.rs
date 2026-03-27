@@ -10,8 +10,8 @@ pub struct RoverState {
 pub struct DistanceTracker {
     pub start_lat: Option<f64>,
     pub start_lon: Option<f64>,
-    state: Vector4<f64>,         // [x, y, v, yaw]
-    covariance: Matrix4<f64>,    // P
+    pub state: Vector4<f64>,         // [x, y, v, yaw]
+    pub covariance: Matrix4<f64>,    // P
     process_noise: Matrix4<f64>, // Q (Trust in physics)
     measurement_noise: Matrix3<f64>, // R (Trust in GPS)
 }
@@ -24,9 +24,12 @@ impl DistanceTracker {
             state: Vector4::zeros(),
             covariance: Matrix4::identity() * 0.5,
             // Q: We set the velocity noise high (2.0) because your accel is noisy
-            process_noise: Matrix4::from_diagonal(&Vector4::new(0.05, 0.05, 2.0, 0.01)),
+            process_noise: Matrix4::from_diagonal(&Vector4::new(0.01, 0.01, 2.0, 0.01)),
+            // process_noise: Matrix4::from_diagonal(&Vector4::new(0.05, 0.05, 2.0, 0.01)),
             // R: We set GPS position noise high (5.0) to ignore the "bouncing"
-            measurement_noise: Matrix3::from_diagonal(&Vector3::new(5.0, 5.0, 0.5)),
+            // Trust GPS significantly more because of RTK
+            measurement_noise: Matrix3::from_diagonal(&Vector3::new(0.05, 0.05, 0.1)),
+            // measurement_noise: Matrix3::from_diagonal(&Vector3::new(5.0, 5.0, 0.5)),
         }
     }
 
@@ -60,7 +63,8 @@ impl DistanceTracker {
     }
 
     /// UPDATE Step (Call @ 1Hz from GPS data)
-    pub fn update_gps(&mut self, lat: f64, lon: f64, gps_v_ms: f64) -> RoverState {
+    pub fn update_gps(&mut self, lat: f64, lon: f64, gps_v_ms: f64, fix_str: &str) -> RoverState {
+    // pub fn update_gps(&mut self, lat: f64, lon: f64, gps_v_ms: f64) -> RoverState {
         let s_lat = self.start_lat.unwrap_or(lat);
         let s_lon = self.start_lon.unwrap_or(lon);
         let lon_scale = s_lat.to_radians().cos();
@@ -78,6 +82,16 @@ impl DistanceTracker {
             0.0, 1.0, 0.0, 0.0,
             0.0, 0.0, 1.0, 0.0
         );
+
+        // Mapping your display strings to Measurement Uncertainty (R)
+        let r_val = match fix_str {
+            "Fixed RTK" => 0.0001, // 1cm - Extreme trust
+            "Float RTK" => 0.01,   // 10cm - High trust
+            "DGPS Fix"  => 0.5,    // Sub-meter trust
+            "GPS Fix"   => 2.0,    // Standard meter-level trust
+            _           => 5.0,    // Invalid or poor signal
+        };
+        self.measurement_noise = Matrix3::from_diagonal(&Vector3::new(r_val, r_val, 0.1));
 
         // Kalman math
         let s = h * self.covariance * h.transpose() + self.measurement_noise;

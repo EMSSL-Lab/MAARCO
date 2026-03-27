@@ -7,6 +7,10 @@ scp target/aarch64-unknown-linux-gnu/release/maarco pi4b@172.20.10.6:~/MAARCO
 scp /home/jcohe/MAARCO/examples/Arduino_ML.py  pi4b@172.20.10.6:~/MAARCO/examples
 scp -r /home/jcohe/MAARCO/examples/Model_Old pi4b@172.20.10.6:~/MAARCO/examples
 
+
+scp -r /home/jcohe/MAARCO/logs pi4b@172.20.10.6:~/MAARCO/logs
+
+
 How to send files from pi to computer:
 scp -r pi4b@172.20.10.6:~/MAARCO/examples/ML_data /home/jcohe/MAARCO/examples
 
@@ -34,5 +38,4 @@ input left pwm
 Add a wifi connection:
 sudo nmcli dev wifi connect "[]" password "[]"
 
-
-emssl_lab
+gps log: uv run python examples/plot_gps_log.py /home/jcohe/MAARCO/logs/2026-02-02_09-51-50_gps_fixed.csv
