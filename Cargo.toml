@@ -19,6 +19,10 @@ path = "src/bin/main_pred_yaw.rs"
 name = "maarco_EKF"
 path = "src/bin/main_EKF.rs"
 
+[[bin]]
+name = "maarco_pwm"
+path = "src/bin/main_pwm.rs"
+
 
 [dependencies]
 base64 = "0.22.1"

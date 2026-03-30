@@ -20,7 +20,6 @@ cp -r /home/jcohe/MAARCO/examples/ML_data /mnt/c/Users/jcohe/OneDrive/Documents/
 Git Commands, specifically to my branch
 git pull origin Julian --no-rebase
 git add .
-git push origin Julian --force
 git commit -m "Updated models and live terrain logs"
 git push origin Julian --force
 
@@ -39,3 +38,14 @@ Add a wifi connection:
 sudo nmcli dev wifi connect "[]" password "[]"
 
 gps log: uv run python examples/plot_gps_log.py /home/jcohe/MAARCO/logs/2026-02-02_09-51-50_gps_fixed.csv
+
+
+sudo nmcli connection add type wifi con-name "ZairesiPhone" ifname wlan0 ssid "ZairesiPhone" wifi-sec.key-mgmt wpa-psk wifi-sec.psk "GoofyGoober"
+
+Zaire hotspot: pi: 172.20.10.2
+Matthew hotspot: pi: 172.20.10.4
+Julian hotspot: pi: 172.20.10.6
+
+IP Scan: 
+sudo apt install nmap
+sudo nmap -sP 172.20.10.0/24 | grep -B 2 "Raspberry Pi"
