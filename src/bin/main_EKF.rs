@@ -368,10 +368,10 @@ fn main() -> std::io::Result<()> {
 
                 if let Some(euler_x) = sensor_data.euler_x {
                     if should_calibrate_heading {
-                        heading_offset = -(euler_x as f64) - 90.0;
+                        heading_offset = (euler_x as f64) - 90.0;
                         should_calibrate_heading = false;
                     }
-                    corrected_yaw = -(euler_x as f64) - heading_offset;
+                    corrected_yaw = (euler_x as f64) - heading_offset;
                 }
 
                 // EKF PREDICTION (Dead Reckoning)

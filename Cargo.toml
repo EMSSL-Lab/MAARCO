@@ -5,7 +5,7 @@ edition = "2024"
 
 [[bin]]
 name = "maarco_yaw_wptrack"
-path = "src/bin/main.rs"
+path = "src/bin/main_gps.rs"
 
 [[bin]]
 name = "maarco_orig"

@@ -301,7 +301,7 @@ fn main() -> std::io::Result<()> {
             if let Some(sensor_data) = arduino_serial_data.unwrap() {
                 if let Some(euler_x) = sensor_data.euler_x {
                 if should_calibrate_heading {
-                    heading_offset = -(euler_x as f64) - 90.0; // Assuming we want to face "east" at the start, adjust as needed
+                    heading_offset = (euler_x as f64) - 90.0; // Assuming we want to face "east" at the start, adjust as needed
                     should_calibrate_heading = false;
                     println!("Heading Offset Calibrated: {}°", heading_offset);
                 }    

@@ -174,7 +174,7 @@ fn main() -> std::io::Result<()> {
             }
             if let Some(sensor_data) = arduino_serial_data.unwrap() {
                 if let Some(euler_x) = sensor_data.euler_x {
-                let corrected_yaw = -(euler_x as f64);
+                let corrected_yaw = (euler_x as f64);
                 // Call controller to command right motor speed
                 let current_kp = yaw_control.kp; // or yaw_control.get_kp()
                 let current_kd = yaw_control.kd; // or yaw_control.get_kd()
@@ -187,7 +187,7 @@ fn main() -> std::io::Result<()> {
                 );
 
                 let msg = format!(
-                    "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                    "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                     sensor_data.time_ms.unwrap_or(0),
                     sensor_data.voltage_left.unwrap_or(0.0),
                     sensor_data.current_left_ma.unwrap_or(0.0),
@@ -201,6 +201,11 @@ fn main() -> std::io::Result<()> {
                     sensor_data.acc_lin_x.unwrap_or(0.0),
                     sensor_data.acc_lin_y.unwrap_or(0.0),
                     sensor_data.acc_lin_z.unwrap_or(0.0),
+                    
+                    sensor_data.gyro_x.unwrap_or(0.0),
+                    sensor_data.gyro_y.unwrap_or(0.0),
+                    sensor_data.gyro_z.unwrap_or(0.0),
+
                     sensor_data.sonar_mm.unwrap_or(0.0),
                     sensor_data.tof_mm.unwrap_or(0.0),
                     sensor_data.rpm_left.unwrap_or(0.0),
