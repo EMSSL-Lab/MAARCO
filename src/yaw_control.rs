@@ -48,7 +48,7 @@ if dt > 0.0 {
     derivative = (error - self.last_error) / dt;
 }
 
-let output = (self.kp * error) + (self.kd * derivative);
+let output = -1.0*(self.kp * error) + -1.0*(self.kd * derivative);
 
 // Update state
 self.last_error = error;
@@ -61,16 +61,19 @@ self.last_time = now;
 
 pub fn compute_motor_commands(
     &mut self,
-    current_yaw: f64,
-    target_yaw: f64,
-    base_speed_right: u64, // Now used as a constant
+    current_yaw: f64, // From IMU 
+    target_yaw: f64,  // User declared target yaw
+    base_speed_right: u64, // User declared base pwm 
 ) -> MotorCommands {
     let yaw_correction = self.yaw_calculate(current_yaw, target_yaw);
 
     // Right motor handles all the adjustment
     // If yaw_correction is positive (need to turn right), 
     // subtracting it makes the right motor slower.
-    let right_pwm = (base_speed_right as f64 + yaw_correction).clamp(1500.0, 2000.0) as u64;
+    // I think the way the logic currently is will have the right and left motors always at a different baseline speed, since we do not inherently know what pwm 
+    // value corresponds to what rpm. The rpm controller should really increase the base throttle for both the right and left motors and we should input
+    // a desired rpm for both the left and the right motors
+    let right_pwm = (base_speed_right as f64 + yaw_correction).clamp(1600.0, 2000.0) as u64;
 
     MotorCommands {
         right_pwm_us: right_pwm as u64,

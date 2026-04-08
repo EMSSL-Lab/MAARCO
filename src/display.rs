@@ -15,6 +15,7 @@ pub struct Display {
     last_gps: Option<(Nmea, Option<String>)>,
     last_arduino: Option<SensorData>,
     distance_estimator: Option<f32>,
+    accel_filtered: Option<f32>,
 }
 
 enum DisplayItem {
@@ -30,19 +31,20 @@ impl Display {
             last_gps: None,
             last_arduino: None,
             distance_estimator: None,
+            accel_filtered: None
         }
     }
 
-    pub fn update_distance<W: Write>(
-        &mut self,
-        stdout: &mut W,
-        distance: f32,
-    ) -> std::io::Result<()> {
-        self.distance_estimator = Some(distance);
-        self.render(stdout)
-    }  
-
-
+pub fn update_distance_and_accel<W: Write>(
+    &mut self,
+    stdout: &mut W,
+    distance: f32,
+    accel: f32,
+) -> std::io::Result<()> {
+    self.distance_estimator = Some(distance);
+    self.accel_filtered = Some(accel);
+    self.render(stdout)
+}
     // Private helper to render a list of DisplayItems
     fn render<W: Write>(&mut self, stdout: &mut W) -> std::io::Result<()> {
         let mut items = Vec::new();  
@@ -260,7 +262,14 @@ impl Display {
                 Some("m".to_string())
             ));    
         }
-     
+        
+        if let Some(accel) = self.accel_filtered {
+            items.push(DisplayItem::Data(
+            "Filtered Accel (Y)".to_string(),
+            format!("{:.4}",accel),
+            Some("m/s²".to_string()),
+            ));
+        }
 
         let max_len = items
             .iter()

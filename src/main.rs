@@ -111,30 +111,30 @@ fn main() -> std::io::Result<()> {
 
     let mut buf = String::new();
 
-    // println!("Enter Yaw proportional gain (Kp):");
-    // io::stdin().read_line(&mut buf)?;
-    // let kp_yaw: f64 = buf.trim().parse().expect("Invalid number");
-    // buf.clear();
+    println!("Enter Yaw proportional gain (Kp):");
+    io::stdin().read_line(&mut buf)?;
+    let kp_yaw: f64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
 
-    // println!("Enter Yaw derivative gain (Kd):");
-    // io::stdin().read_line(&mut buf)?;
-    // let kd_yaw: f64 = buf.trim().parse().expect("Invalid number");
-    // buf.clear();
+    println!("Enter Yaw derivative gain (Kd):");
+    io::stdin().read_line(&mut buf)?;
+    let kd_yaw: f64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
 
     println!("Enter target yaw heading in degrees (0=North, 90=East):");
     io::stdin().read_line(&mut buf)?;
     let mut target_yaw: f64 = buf.trim().parse().expect("Invalid number");
     buf.clear();
 
-    // println!("Enter RPM proportional gain (Kp):");
-    // io::stdin().read_line(&mut buf)?;
-    // let kp_rpm: f64 = buf.trim().parse().expect("Invalid number");
-    // buf.clear();
+    println!("Enter RPM proportional gain (Kp):");
+    io::stdin().read_line(&mut buf)?;
+    let kp_rpm: f64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
 
-    // println!("Enter RPM derivative gain (Kd):");
-    // io::stdin().read_line(&mut buf)?;
-    // let kd_rpm: f64 = buf.trim().parse().expect("Invalid number");
-    // buf.clear();
+    println!("Enter RPM derivative gain (Kd):");
+    io::stdin().read_line(&mut buf)?;
+    let kd_rpm: f64 = buf.trim().parse().expect("Invalid number");
+    buf.clear();
 
     println!("Enter target left motor RPM:");
     io::stdin().read_line(&mut buf)?;
@@ -149,23 +149,24 @@ fn main() -> std::io::Result<()> {
     // base_throttle: fixed for the whole run.
     // Not touched by any controller — only dist_ctrl can override it to 1500
     // on arrival
-    println!("Enter base throttle PWM (1500=stop, 2000=full forward):");
-    io::stdin().read_line(&mut buf)?;
-    let base_throttle: u64 = buf.trim().parse().expect("Invalid number");
-    buf.clear();
+    // println!("Enter base throttle PWM (1500=stop, 2000=full forward):");
+    // io::stdin().read_line(&mut buf)?;
+    // let mut base_throttle: u64 = buf.trim().parse().expect("Invalid number");
+    // buf.clear();
     // ─────────────────────────────────────────────────────────────────────────
 
     // Set controller gains here
-    let kp_yaw: f64 = 2.0;
-    let kd_yaw: f64 = 0.2;
-    let kp_rpm: f64 = 15.0;
-    let kd_rpm: f64 = 1.5;
+    // let kp_yaw: f64 = 10.0;
+    // let kd_yaw: f64 = 1.0;
+    // let kp_rpm: f64 = 2.5;
+    // let kd_rpm: f64 = 0.5;
     
     
     // Initialize control variables
     let mut yaw_ctrl  = YawController::new(kp_yaw, kd_yaw);
     let mut rpm_ctrl  = RpmController::new(kp_rpm, kd_rpm);
     let mut dist_tracker = DistanceTracker::new();
+    let mut base_throttle: u64 = 1500; // Hardcode base throttle to be 1500, this will be adjusted based on the user's desired rpm input 
 
     // Initialize gps variables
     let mut parser = gps::parser::build_parser();
@@ -271,8 +272,9 @@ fn main() -> std::io::Result<()> {
                     target_dist,
                 );
                 
-                
-                display.update_distance(&mut stdout, dist_out.dist_traveled_m as f32)?;
+                // Update estimated distance traveled and filtered accel in live display 
+                display.update_distance_and_accel(&mut stdout, dist_out.dist_traveled_m as f32,dist_out.accel_filtered as f32)?;
+              
 
                 println!("Distance traveled: {:.3} m",dist_out.dist_traveled_m);
 
@@ -295,7 +297,7 @@ fn main() -> std::io::Result<()> {
                     
                     // Reset controllers 
                     dist_tracker.reset_for_new_target();
-                    rpm_ctrl.reset_trim();
+                    rpm_ctrl.reset_base_throttle();
                     rpm_ctrl.reset();
                     yaw_ctrl.reset();
 
@@ -304,22 +306,7 @@ fn main() -> std::io::Result<()> {
             }
             // --------------------------------------------------------------------------------------
 
-
-         
-
-            // Yaw controller — right motor only ─────────────────────
-            // Varies right motor around base_throttle to hold target_yaw.
-            // base_throttle is fixed — yaw_ctrl trims ±250 µs around it.
-            if let Some(euler_x) = sensor_data.euler_x {
-                let yaw_cmd: YawCommands = yaw_ctrl.compute_motor_commands(
-                    euler_x as f64,
-                    target_yaw,
-                    base_throttle,
-                );
-                let _ = motor::update_pwm_r(&mut motor_pin_r, yaw_cmd.right_pwm_us as i64);
-            }
-
-            // RPM controller — left motor only ──────────────────────
+              // RPM controller — left motor only ──────────────────────
             // Holds left motor at user-defined target_rpm using measured
             // rpm_left feedback. Completely independent of right motor.
             // base_throttle is mirrored inside rpm_ctrl to get the left baseline.
@@ -329,7 +316,24 @@ fn main() -> std::io::Result<()> {
                     target_rpm,
                     base_throttle,
                 );
-                let _ = motor::update_pwm_l(&mut motor_pin_l, rpm_cmd.left_pwm_us as i64);
+                base_throttle = rpm_cmd.base_throttle;
+                let _ = motor::update_pwm_l(&mut motor_pin_l, rpm_cmd.left_pwm as i64);
+            }
+         
+
+            // Yaw controller — right motor only ─────────────────────
+            // Varies right motor around base_throttle to hold target_yaw.
+            if let Some(euler_x) = sensor_data.euler_x {
+                let yaw_cmd: YawCommands = yaw_ctrl.compute_motor_commands(
+                    euler_x as f64,
+                    target_yaw,
+                    base_throttle,
+                );
+                let _ = motor::update_pwm_r(&mut motor_pin_r, yaw_cmd.right_pwm_us as i64);
+            }
+
+        
+           
             }
         }
 
@@ -338,4 +342,4 @@ fn main() -> std::io::Result<()> {
     }
 
 
-}
+

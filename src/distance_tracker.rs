@@ -2,16 +2,11 @@
 
 // distance_tracker.rs
 //
-// Sensor-fused distance tracker for a screw-drive rover.
 //
 // Update cadence:
 //   update_gps()  — called at ~1 Hz when a new GPS epoch arrives
 //   update_imu()  — called at ~10 Hz on every Arduino sensor packet
 //
-// Fusion strategy (between GPS pulses):
-//   1. RPM odometry   : avg screw RPM → meters traveled in dt
-//   2. Kinematics     : v*dt + ½*a*dt²  (a = |acc_lin| from IMU)
-//   3. Weighted average of the two → added to running total
 //
 // On each GPS pulse:
 //   • Total distance is *reset* to haversine(start → current fix)   (drift correction)
@@ -19,39 +14,30 @@
 
 use std::time::Instant;
 
-// ── Screw-drive constants ──────────────────────────────────────────────────────
-// const SCREW_PITCH_M: f64 = 0.067;        // meters per revolution (physical pitch)
-// const SCREW_EFFICIENCY: f64 = 0.75;     // terrain efficiency factor
-// const METERS_PER_ROTATION: f64 = SCREW_PITCH_M * SCREW_EFFICIENCY;
-
-// ── Sensor-fusion weights (must sum to 1.0) ───────────────────────────────────
-// const RPM_WEIGHT: f64 = 0.6;
-// const KINEMATICS_WEIGHT: f64 = 0.4;
-
 // Arrival threshold 
 const ARRIVAL_THRESHOLD_M: f64 = 0.2;
 // Filtering const between 0 and 1. Lower value leads to more heavy filtering 
-const ALPHA: f64 = 0.2;
+const ALPHA: f64 = 0.02;
 // acceleration due to gravity
 const G: f64 = 9.81; // m/s^2
-
+// Deadband threshold to kill drift when idling 
+const DEADBAND_EPSILON: f64 = 0.05;
 pub struct DistanceTracker {
     // Start position (set once on first GPS fix, never changes)
     start_lat: Option<f64>,
     start_lon: Option<f64>,
-
     // Running distance estimate (meters from start).
     // Reset to haversine value on each GPS pulse.
     pub distance_traveled_m: f64,
-
     // Velocity used in kinematic equations (m/s).
     // Seeded from GPS speed; integrated forward between pulses.
     velocity_ms: f64,
-
     // Timestamp of the last update_imu() call (for dt calculation)
     last_imu_time: Option<Instant>,
-    // Previous acceleration reading 
-    accel_last: f64,
+    // Filter States
+    accel_last: f64,        // For Exponential Moving Average Filter
+    accel_buffer: [f64; 3], // For Median Filter
+    buffer_idx: usize,      // For Median Filter
 }
 
 /// Returned by update_imu() on every 10 Hz tick.
@@ -60,6 +46,8 @@ pub struct DistanceOutput {
     pub arrived: bool,
     /// Current fused distance estimate from start (meters)
     pub dist_traveled_m: f64,
+    // Filtered Acceleration Value
+    pub accel_filtered: f64,
 }
 
 impl DistanceTracker {
@@ -71,6 +59,8 @@ impl DistanceTracker {
             velocity_ms: 0.0,
             last_imu_time: None,
             accel_last: 0.0,
+            accel_buffer: [0.0; 3],
+            buffer_idx: 0
         }
     }
 
@@ -83,6 +73,8 @@ pub fn reset_for_new_target(&mut self) {
     self.velocity_ms = 0.0;
     self.last_imu_time = None;
     self.accel_last = 0.0;
+    self.accel_buffer = [0.0; 3];
+    self.buffer_idx = 0;
     println!("[DistTrack] Resetting for new target.");
 }
 
@@ -124,17 +116,12 @@ pub fn reset_for_new_target(&mut self) {
         
     }
 
-    // ── IMU & RPM update (called ~10 Hz) ─────────────────────────────────────
+    // ── IMU Update (called ~10 Hz) ─────────────────────────────────────
     //
-    // Computes Δdistance via two methods, takes a weighted average,
-    // and accumulates into distance_traveled_m.
-    // Also integrates velocity forward for the next kinematic step.
-    //
+    // Computes Δdistance by filtering acceleration data and passing it through kinematic equations
     // Returns DistanceOutput so main.rs can check arrival and act.
     pub fn update_imu(
         &mut self,
-        // rpm_left: f64,
-        // rpm_right: f64,
         acc_y: f64,
         pitch_deg: f64,
         target_dist_m: f64,
@@ -164,33 +151,39 @@ pub fn reset_for_new_target(&mut self) {
             return self.output(target_dist_m);
         }
 
-        // ── 1. RPM odometry ──────────────────────────────────────────────────
-        //   average screw RPM → rotations/s → meters in dt
-        // let avg_rpm = (rpm_left + rpm_right) / 2.0;
-        //let delta_rpm = (avg_rpm / 60.0) * METERS_PER_ROTATION * dt;
 
-        // ── 2. Kinematics (constant-acceleration) ────────────────────────────
-        //   acceleration in the y is the forward facing direction of the robot 
+        // ***NEW Filter Pipeline: Debias -> Median -> EMA -> Deadband
+        // Step 1: Debias (Gravity Vector Component Removal)
         let gravity_component = G*pitch_deg.to_radians().sin();
         let accel = acc_y - gravity_component;
-        // NEW*** Add Exponential Moving Average Low Pass Filter 
-        let accel_filtered = ALPHA*accel+(1.0-ALPHA)*self.accel_last;
+        // Step 2: Median Filter to kill large spikes from impacts
+        self.accel_buffer[self.buffer_idx] = accel;
+        self.buffer_idx = (self.buffer_idx + 1) % 3;
+        let mut sorted = self.accel_buffer; // clone array for sorting 
+        sorted.sort_by(|a,b| a.partial_cmp(b).unwrap());
+        let accel_median = sorted[1]; // Pick middle acceleration value
+        // Step 3: EMA Low-Pass Filter (Smooth out vibrations)
+        let accel_filtered = ALPHA*accel_median+(1.0-ALPHA)*self.accel_last;
         self.accel_last = accel_filtered;
+        // Step 4: Deadband filter to kill drift while idling 
+        let accel_final = if accel_filtered.abs() < DEADBAND_EPSILON {
+            0.0
+        } else {
+            accel_filtered
+        };
 
-
-        let delta_kin = self.velocity_ms * dt + 0.5 * accel_filtered * dt * dt;
-        
-        // ── 3. Sensor fusion — weighted average ──────────────────────────────
-        // let delta_fused = RPM_WEIGHT * delta_rpm + KINEMATICS_WEIGHT * delta_kin;
-
-        // ── 4. Accumulate ─────────────────────────────────────────────────────
+        // Perform kinematic calculations with filtered accel data
+        let delta_kin = self.velocity_ms * dt + 0.5 * accel_final * dt * dt;
+        //  Accumulate distance traveled
         self.distance_traveled_m += delta_kin; 
-
-        // ── 5. Integrate velocity for next step ──────────────────────────────
+        //  Integrate velocity for next step 
+        self.velocity_ms = self.velocity_ms + accel_final * dt;
         
-        self.velocity_ms = self.velocity_ms + accel * dt;
-        
-        self.output(target_dist_m)
+        DistanceOutput {
+            arrived: self.distance_traveled_m >= target_dist_m - ARRIVAL_THRESHOLD_M,
+            dist_traveled_m: self.distance_traveled_m,
+            accel_filtered: accel_final,
+        }
     }
     
     // ── Internal helper ───────────────────────────────────────────────────────
@@ -198,6 +191,7 @@ pub fn reset_for_new_target(&mut self) {
         DistanceOutput {
             arrived: self.distance_traveled_m >= target_dist_m - ARRIVAL_THRESHOLD_M,
             dist_traveled_m: self.distance_traveled_m,
+            accel_filtered: 0.0,
         }
     }
 }
