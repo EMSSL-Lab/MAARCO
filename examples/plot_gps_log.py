@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import csv
 import argparse
+import io
 
 @dataclass
 class ParsedGpsData:
@@ -86,6 +87,11 @@ class CsvGpsParser:
         # Add line connecting points in chronological order
         plt.plot(easts, norths, color='gray', alpha=0.5, linewidth=1)
         plt.scatter(easts, norths, c=colors, alpha=0.7)
+
+        # --- ADD THIS LINE ---
+        plt.gca().set_aspect('equal', adjustable='box') 
+        # ---------------------
+
         plt.xlabel('East (cm)')
         plt.ylabel('North (cm)')
         plt.title(f'Deviation Map "{self.file_path.name}" relative to first point')
@@ -138,6 +144,9 @@ class CsvGpsParser:
         # Add line connecting points in chronological order
         ax.plot(easts, norths, ups, color='gray', alpha=0.5, linewidth=1)
         ax.scatter(easts, norths, ups, c=colors, alpha=0.7)
+
+        ax.set_aspect('equal', adjustable='box') 
+
         ax.set_xlabel('East (m)')
         ax.set_ylabel('North (m)')
         ax.set_zlabel('Up (m)')

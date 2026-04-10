@@ -13,9 +13,10 @@ dependencies = [
     "textual-dev>=1.8.0",
     "textual-speedups>=0.2.0",
     "pyserial>=3.5",
-    "numpy>=2.1.0",        # For np.polyfit, np.fft, etc.
-    "pandas>=2.2.0",       # For feature DataFrames
-    "scipy>=1.13.0",       # For savgol_filter and periodogram
-    "joblib>=1.4.0",       # For loading your .pkl models
-    "scikit-learn>=1.5.0", # Required because joblib loads sklearn models
+    "numpy>=2.1.0",
+    "pandas>=2.2.0",
+    "scipy>=1.13.0",
+    "joblib>=1.4.0",
+    "scikit-learn>=1.5.0",
+    "matplotlib>=3.8.0", # Added for plotting ODE results and accel data
 ]

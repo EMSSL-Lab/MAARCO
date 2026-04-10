@@ -1,11 +1,15 @@
 How to Compile Rust Project: 
-cargo build --release
-cargo build --target aarch64-unknown-linux-gnu --release
-
+cargo build --release --bin maarco_yaw_wptrack
+ cargo build --target aarch64-unknown-linux-gnu --release --bin maarco_yaw_wptrack
+ 
 How to send files from computer to Pi:
 scp target/aarch64-unknown-linux-gnu/release/maarco pi4b@172.20.10.6:~/MAARCO
 scp /home/jcohe/MAARCO/examples/Arduino_ML.py  pi4b@172.20.10.6:~/MAARCO/examples
 scp -r /home/jcohe/MAARCO/examples/Model_Old pi4b@172.20.10.6:~/MAARCO/examples
+
+
+scp -r /home/jcohe/MAARCO/logs pi4b@172.20.10.6:~/MAARCO/logs
+
 
 How to send files from pi to computer:
 scp -r pi4b@172.20.10.6:~/MAARCO/examples/ML_data /home/jcohe/MAARCO/examples
@@ -13,10 +17,14 @@ scp -r pi4b@172.20.10.6:~/MAARCO/examples/ML_data /home/jcohe/MAARCO/examples
 Copying folder from WSL to windows
 cp -r /home/jcohe/MAARCO/examples/ML_data /mnt/c/Users/jcohe/OneDrive/Documents/Python_Projects/PhD_Research/Data_Review/Classifier
 
+Copying folder from windows to WSL
+# Syntax: cp [options] /mnt/c/path/to/windows/file /home/username/destination
+cp -r /mnt/c/Users/jcohe/OneDrive/Documents/Research_Folder /home/jcohe/MAARCO/
+
+
 Git Commands, specifically to my branch
 git pull origin Julian --no-rebase
 git add .
-git push origin Julian --force
 git commit -m "Updated models and live terrain logs"
 git push origin Julian --force
 
@@ -29,3 +37,25 @@ select model
 cd MAARCO
 ./maarco 
 input left pwm
+
+
+Add a wifi connection:
+sudo nmcli dev wifi connect "[]" password "[]"
+
+gps log: uv run python examples/plot_gps_log.py /home/jcohe/MAARCO/logs/2026-02-02_09-51-50_gps_fixed.csv
+
+
+sudo nmcli connection add type wifi con-name "Pixel" ifname wlan0 ssid "Pixel" wifi-sec.key-mgmt wpa-psk wifi-sec.psk "harshil1234"
+
+Zaire hotspot: pi: 172.20.10.2
+Matthew hotspot: pi: 172.20.10.4
+Julian hotspot: pi: 172.20.10.6
+Ashwin: 10.201.103.85
+
+IP Scan: 
+sudo apt install nmap
+sudo nmap -sP 172.20.10.0/24 | grep -B 2 "Raspberry Pi"
+
+
+sudo nmap -sP 10.201.103.0/24 | grep -B 2 "Raspberry Pi"
+ 

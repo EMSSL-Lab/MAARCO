@@ -3,6 +3,27 @@ name = "maarco"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "maarco_yaw_wptrack"
+path = "src/bin/main_gps.rs"
+
+[[bin]]
+name = "maarco_orig"
+path = "src/bin/main_orig.rs"
+
+[[bin]]
+name = "maarco_pred_yaw"
+path = "src/bin/main_pred_yaw.rs"
+
+[[bin]]
+name = "maarco_EKF"
+path = "src/bin/main_EKF.rs"
+
+[[bin]]
+name = "maarco_pwm"
+path = "src/bin/main_pwm.rs"
+
+
 [dependencies]
 base64 = "0.22.1"
 chrono = "0.4.42"
@@ -12,7 +33,7 @@ cross = "0.2.5"
 crossterm = "0.29.0"
 csv = "1.3.1"
 ctrlc = "3.5.2"
-
+nalgebra = "0.32"
 eyre = "0.6.12"
 nmea = { version = "0.7.0", features = ["default", "serde"] }
 rppal = "0.22.1"
