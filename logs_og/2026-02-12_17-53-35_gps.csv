@@ -1,6 +1,0 @@
-timestamp_ns,fix_time,fix_date,gga_fix_quality,avg_snr,latitude,longitude,altitude_m,speed_over_ground,true_course,num_of_fix_satellites,hdop,vdop,pdop,geoid_separation
-1770936817083486473,00:22:35.012,2080-01-06,Invalid,,,,,,,0,99.99,99.99,99.99,
-1770936817976326278,00:22:36.012,2080-01-06,Invalid,,,,,,,0,99.99,99.99,99.99,
-1770936819075344691,00:22:37.012,2080-01-06,Invalid,,,,,,,0,99.99,99.99,99.99,
-1770936820028280443,00:22:38.012,2080-01-06,Invalid,,,,,,,0,99.99,99.99,99.99,
-1770936820868654477,00:22:39.012,2080-01-06,Invalid,,,,,,,0,99.99,99.99,99.99,

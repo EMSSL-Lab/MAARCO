@@ -25,7 +25,7 @@ cp -r /mnt/c/Users/jcohe/OneDrive/Documents/Research_Folder /home/jcohe/MAARCO/
 Git Commands, specifically to my branch
 git pull origin Julian --no-rebase
 git add .
-git commit -m "Updated models and live terrain logs"
+git commit -m "Updates"
 git push origin Julian --force
 
 Running MAARCO RTACS:
