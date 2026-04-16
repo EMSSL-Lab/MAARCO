@@ -33,6 +33,7 @@ pub struct EkfLogData {
     pub q_ori: f64,
     pub r_fixed: f64,
     pub r_float: f64,
+    pub error_percent: f64, // New field for error percentage
 }
 
 #[derive(Debug, Clone, Serialize)]

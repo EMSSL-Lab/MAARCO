@@ -50,6 +50,7 @@ fn main() -> std::io::Result<()> {
     let r_float_init = 0.25;
     let mut r_standard = 25.0; // Note: r_standard was missing an init value later
     let cutoff_hz_init = 10.0;
+    let error_init = 0.0; // Initialize error percentage
 
     // Now initialize the mutable versions
     let mut q_pos = q_pos_init;
@@ -58,6 +59,7 @@ fn main() -> std::io::Result<()> {
     let mut r_fixed = r_fix_init;
     let mut r_float = r_float_init;
     let mut cutoff_hz = cutoff_hz_init;
+    let mut error = error_init;
 
     let args = Args::parse();
 
@@ -149,7 +151,7 @@ fn main() -> std::io::Result<()> {
             let parts: Vec<&str> = msg.split(',').collect();
             
             // Packet format from Python: "GAIN,q_pos,q_vel,q_ori,r_fix,r_float,cutoff_hz"
-            if parts[0] == "GAIN" && parts.len() == 7 {
+            if parts[0] == "GAIN" && parts.len() == 8 {
                 q_pos = parts[1].parse().unwrap_or(q_pos);
                 q_vel = parts[2].parse().unwrap_or(q_vel);
                 q_ori = parts[3].parse().unwrap_or(q_ori);
@@ -157,6 +159,8 @@ fn main() -> std::io::Result<()> {
                 r_float = parts[5].parse().unwrap_or(r_float);
                 cutoff_hz = parts[6].parse().unwrap_or(cutoff_hz);
                 r_standard = 25.0;
+                error = parts[7].parse().unwrap_or(error);
+                
                 // Apply to the live EKF instance WITHOUT losing state
                 ekf.update_tuning(q_pos, q_vel, q_ori, r_fixed, r_float);
                 
@@ -269,6 +273,7 @@ fn main() -> std::io::Result<()> {
                         q_ori: q_ori,                      // Your tuning parameter
                         r_fixed: r_fixed,                  // Your tuning parameter
                         r_float: r_float,                  // Your tuning parameter
+                        error_percent: error,              // The error percentage sent from Python
                     };
                     logger.log_ekf(log_entry);
                     display.update_ekf(&mut stdout,ekf.p,ekf.v,ekf.q,total_distance)?;

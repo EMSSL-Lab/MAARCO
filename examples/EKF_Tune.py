@@ -102,7 +102,7 @@ class GCSApp:
 
     def send_gains(self):
         # Matches the Rust "parts.len() == 7" logic
-        msg = f"GAIN,{self.q_pos_s.get():.6f},{self.q_vel_s.get():.6f},{self.q_ori_s.get():.6f},{self.r_fix_s.get():.6f},{self.r_float_s.get():.6f},{self.cutoff_hz_s.get():.6f}"
+        msg = f"GAIN,{self.q_pos_s.get():.6f},{self.q_vel_s.get():.6f},{self.q_ori_s.get():.6f},{self.r_fix_s.get():.6f},{self.r_float_s.get():.6f},{self.cutoff_hz_s.get():.6f}, {self.error_percent:.2f}"
         print(f"Sent: {msg}")
         self.sock.sendto(msg.encode(), RUST_SEND_ADDR)
 
@@ -141,6 +141,7 @@ class GCSApp:
             if planned > 0:
                 error = abs(self.total_dist_rust - planned) / planned * 100
                 self.error_label.config(text=f"Rust: {self.total_dist_rust:.2f}m\nError: {error:.1f}%")
+                self.send_error(error)
         except ValueError:
             pass
 
