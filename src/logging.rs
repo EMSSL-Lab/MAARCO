@@ -1,5 +1,5 @@
 // src/logging.rs
-use crate::usb_serial::SensorData;
+use crate::usb_serial_new::SensorData;
 use csv::Writer;
 use nmea::Nmea;
 use serde::Serialize;

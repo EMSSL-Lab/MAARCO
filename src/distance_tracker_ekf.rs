@@ -1,4 +1,4 @@
-use nalgebra::{Matrix4, Vector4, Matrix3x4, Vector3, Matrix3, Vector2};
+use nalgebra::{Matrix4, Vector4, Matrix3x4, Vector3, Matrix3};
 
 pub struct RoverState {
     pub x_m: f64,

@@ -1,3 +1,5 @@
+use nalgebra::{Vector3, UnitQuaternion}; // Add this import
+
 use crossterm::{
     cursor::MoveUp,
     queue,
@@ -8,13 +10,14 @@ use std::io::Write;
 
 use nmea::Nmea;
 
-use crate::usb_serial::SensorData;
+use crate::usb_serial_new::SensorData;
 
 pub struct Display {
     prev_lines: u16,
     last_gps: Option<(Nmea, Option<String>)>,
     last_ntrip: String,
     last_arduino: Option<SensorData>,
+    last_ekf: Option<(Vector3<f64>, Vector3<f64>, UnitQuaternion<f64>, f64)>, // New field
 }
 
 enum DisplayItem {
@@ -30,6 +33,7 @@ impl Display {
             last_gps: None,
             last_ntrip: String::from("No connection"),
             last_arduino: None,
+            last_ekf: None, // Initialize
         }
     }
 
@@ -267,6 +271,43 @@ impl Display {
             ));
         }
 
+        if let Some((pos, vel, ori,distance)) = &self.last_ekf {
+            items.push(DisplayItem::Header(
+                "=== EKF FILTERED STATE ===".to_string(),
+                Color::Cyan,
+            ));
+            items.push(DisplayItem::Data(
+                "Filtered X".to_string(),
+                format!("{:.3}", pos.x),
+                Some("m".to_string()),
+            ));
+            items.push(DisplayItem::Data(
+                "Filtered Y".to_string(),
+                format!("{:.3}", pos.y),
+                Some("m".to_string()),
+            ));
+
+            items.push(DisplayItem::Data(
+                "Distance Traveled".to_string(),
+                format!("{:.3}", distance),
+                Some("m".to_string()),
+            ));    
+
+            items.push(DisplayItem::Data(
+                "Velocity".to_string(),
+                format!("{:.3}", vel.norm()),
+                Some("m/s".to_string()),
+            ));
+            
+            // Convert quaternion to Euler for readability
+            let euler = ori.euler_angles();
+            items.push(DisplayItem::Data(
+                "Heading (Yaw)".to_string(),
+                format!("{:.2}", euler.2.to_degrees()),
+                Some("°".to_string()),
+            ));
+        }
+
         let max_len = items
             .iter()
             .filter_map(|item| {
@@ -329,6 +370,18 @@ impl Display {
 
         Ok(())
     }
+
+    pub fn update_ekf<W: Write>(
+    &mut self,
+    stdout: &mut W,
+    pos: Vector3<f64>,
+    vel: Vector3<f64>,
+    ori: UnitQuaternion<f64>,
+    distance: f64,
+) -> std::io::Result<()> {
+    self.last_ekf = Some((pos, vel, ori,distance));
+    self.render(stdout)
+}
 
     pub fn update_gps<W: Write>(
         &mut self,

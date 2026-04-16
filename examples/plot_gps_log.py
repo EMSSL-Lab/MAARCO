@@ -104,7 +104,7 @@ class CsvGpsParser:
             Line2D([0], [0], marker='o', color='w', label='Fixed', markerfacecolor='green', markersize=10),
             Line2D([0], [0], marker='o', color='w', label='Float', markerfacecolor='yellow', markersize=10),
         ]
-        plt.legend(handles=legend_elements, loc='upper right')
+        # plt.legend(handles=legend_elements, loc='upper right')
         plt.show()
 
     def plot_3d_deviation_map(self):
