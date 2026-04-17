@@ -15,6 +15,9 @@ class GCSApp:
         # --- DATA STATE ---
         self.current_pos = (0.0, 0.0)
         self.total_dist_rust = 0.0
+        self.tot_dist_rust = 0.0
+        self.rel_dist_rust = 0.0
+        self.error_percent = 0.0
         self.truth_dist = 5.0 # Default goal
         
         # --- UI LAYOUT ---
@@ -35,18 +38,53 @@ class GCSApp:
         self.screen = turtle.TurtleScreen(self.canvas)
         self.screen.bgcolor("#1a1a1a")
         self.screen.tracer(0)
-        self.screen.setworldcoordinates(-10, -10, 10, 10)
+
+        dim_x = 10  # Meters in x direction
+        dim_y = 10  # Meters in y direction
+        self.screen.setworldcoordinates(-dim_x, -dim_y, dim_x, dim_y)
         
         # Grid
         grid = turtle.RawTurtle(self.screen, visible=False)
         grid.pencolor("#34495e")
-        for i in range(-10, 11):
-            grid.penup(); grid.goto(i, -10); grid.pendown(); grid.goto(i, 10)
-            grid.penup(); grid.goto(-10, i); grid.pendown(); grid.goto(10, i)
+        for i in range(-int(dim_x), int(dim_x) + 1):
+            grid.penup(); grid.goto(i, -int(dim_y)); grid.pendown(); grid.goto(i, int(dim_y))
+            grid.penup(); grid.goto(-int(dim_x), i); grid.pendown(); grid.goto(int(dim_x), i)
+
+        # Add unit labels
+        label = turtle.RawTurtle(self.screen, visible=False)
+        label.pencolor("#ffffff")
+        label.penup()
+        for i in range(-int(dim_x), int(dim_x) + 1):
+            # X-axis labels at bottom
+            label.goto(i, -0.2)
+            label.write(str(i), align="center", font=("Arial", 8, "normal"))
+            # Y-axis labels at left
+            label.goto(-0.2, i)
+            label.write(str(i), align="right", font=("Arial", 8, "normal"))
+
+        # Axis labels
+        label.goto(dim_x - 1, -1)
+        label.write("X (m)", align="left", font=("Arial", 10, "bold"))
+        label.goto(-1, dim_y - 1)
+        label.write("Y (m)", align="center", font=("Arial", 10, "bold"))
+
+        # Compass labels
+        label.goto(0.5, dim_y - 1)
+        label.write("N", align="center", font=("Arial", 12, "bold"))
+        label.goto(dim_x  - 1, 0.5)
+        label.write("E", align="center", font=("Arial", 12, "bold"))
+        label.goto(0.5, -dim_y + 1)
+        label.write("S", align="center", font=("Arial", 12, "bold"))
+        label.goto(-dim_x + 1, 0.5)
+        label.write("W", align="center", font=("Arial", 12, "bold"))
 
         self.rover = turtle.RawTurtle(self.screen, shape="triangle")
         self.rover.color("#2ecc71")
         self.rover.penup()
+
+        self.gps_marker = turtle.RawTurtle(self.screen, visible=False)
+        self.gps_marker.penup()
+        self.gps_marker.color("red")
 
     def setup_controls(self):
         # --- EKF TUNING SLIDERS ---
@@ -70,7 +108,7 @@ class GCSApp:
         
         ttk.Label(self.ctrl_frame, text="Planned Walk (m):").pack()
         self.truth_entry = ttk.Entry(self.ctrl_frame)
-        self.truth_entry.insert(0, "5.0")
+        self.truth_entry.insert(0, "7.5")
         self.truth_entry.pack()
 
         self.error_label = ttk.Label(self.ctrl_frame, text="Error: 0.0%", font=('Courier', 12))
@@ -102,12 +140,18 @@ class GCSApp:
 
     def send_gains(self):
         # Matches the Rust "parts.len() == 7" logic
-        msg = f"GAIN,{self.q_pos_s.get():.6f},{self.q_vel_s.get():.6f},{self.q_ori_s.get():.6f},{self.r_fix_s.get():.6f},{self.r_float_s.get():.6f},{self.cutoff_hz_s.get():.6f}, {self.error_percent:.2f}"
-        print(f"Sent: {msg}")
-        self.sock.sendto(msg.encode(), RUST_SEND_ADDR)
+        msg = f"GAIN,{self.q_pos_s.get():.6f},{self.q_vel_s.get():.6f},{self.q_ori_s.get():.6f},{self.r_fix_s.get():.6f},{self.r_float_s.get():.6f},{self.cutoff_hz_s.get():.6f},{self.error_percent:.2f}"
+        # print(f"Sent: {msg}")
+        try:
+            self.sock.sendto(msg.encode(), RUST_SEND_ADDR)
+        except OSError as e:
+            print(f"Network error sending gains: {e}")
 
     def reset_odom(self):
-        self.sock.sendto(b"RESET_ODOM", RUST_SEND_ADDR)
+        try:
+            self.sock.sendto(b"RESET_ODOM", RUST_SEND_ADDR)
+        except OSError as e:
+            print(f"Network error resetting odom: {e}")
         self.total_dist_rust = 0.0
         print(f"RESET_ODOM")
 
@@ -121,14 +165,19 @@ class GCSApp:
             data, addr = self.sock.recvfrom(1024)
             msg = data.decode().split(',')
             if msg[0] == "POS":
+                # print(f"Received: {msg}")
                 # Expecting: POS, x, y, heading, total_dist
-                rx, ry, head, dist = map(float, msg[1:5])
+                rx, ry, head, tot_dist,rel_dist,gps_x,gps_y = map(float, msg[1:8])
                 self.rover.goto(rx, ry)
                 self.rover.setheading(head)
                 self.rover.pendown()
                 
-                self.total_dist_rust = dist
+                self.tot_dist_rust = tot_dist
+                self.rel_dist_rust = rel_dist
                 self.calculate_error()
+                self.gps_marker.goto(gps_x, gps_y)
+                self.gps_marker.dot(5) # Leave a small red dot
+                                
         except BlockingIOError:
             pass
         
@@ -139,11 +188,38 @@ class GCSApp:
         try:
             planned = float(self.truth_entry.get())
             if planned > 0:
-                error = abs(self.total_dist_rust - planned) / planned * 100
-                self.error_label.config(text=f"Rust: {self.total_dist_rust:.2f}m\nError: {error:.1f}%")
+                planned_dist = float(self.truth_entry.get())
+                
+                # # We assume the goal is (planned_dist, 0) for a straight line test
+                # goal_x = planned_dist
+                # goal_y = 0.0 
+                
+                # # Distance from where we ARE to where we SHOULD BE
+                # error_meters = ((self.current_pos[0] - goal_x)**2 + (self.current_pos[1] - goal_y)**2)**0.5
+                
+                # # Percentage error relative to the total trip length
+                # if planned_dist > 0:
+                #     error_percent = (error_meters / planned_dist) * 100
+                #     self.error_label.config(text=f"Dist Err: {error_meters:.2f}m\nRel Err: {error_percent:.1f}%")    
+
+                # error = abs(self.tot_dist_rust - planned) / planned * 100
+                # self.error_label.config(text=f"Rust: {self.tot_dist_rust:.2f}m\nError: {error:.1f}%")
+
+                error = abs(self.rel_dist_rust - planned) / planned * 100
+                self.error_label.config(text=f"Rust: {self.rel_dist_rust:.2f}m\nError: {error:.1f}%")
+
+                self.error_percent = error
                 self.send_error(error)
         except ValueError:
             pass
+
+    def send_error(self, error: float):
+        self.error_percent = error
+        msg = f"GAIN,{self.q_pos_s.get():.6f},{self.q_vel_s.get():.6f},{self.q_ori_s.get():.6f},{self.r_fix_s.get():.6f},{self.r_float_s.get():.6f},{self.cutoff_hz_s.get():.6f},{self.error_percent:.2f}"
+        try:
+            self.sock.sendto(msg.encode(), RUST_SEND_ADDR)
+        except OSError as e:
+            print(f"Network error sending error: {e}")  # Optional: log the error
 
 if __name__ == "__main__":
     root = tk.Tk()

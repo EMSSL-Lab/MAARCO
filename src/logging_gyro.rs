@@ -24,9 +24,14 @@ pub struct EkfLogData {
     pub pos_y: f64,
     pub vel_n: f64,
     pub vel_e: f64,
+    pub last_gps_pos_x: f64, // Last known GPS X
+    pub last_gps_pos_y: f64, // Last known GPS Y
     pub distance_traveled: f64,
+    pub relative_distance: f64,
     // Heading Comparison
     pub yaw_imu_deg: f64,
+    pub euler_x: f64, // New field for Euler angle X
+
     // Metadata/Tuning
     pub q_pos: f64,
     pub q_vel: f64,

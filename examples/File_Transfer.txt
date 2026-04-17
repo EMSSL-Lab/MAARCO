@@ -58,4 +58,6 @@ sudo nmap -sP 172.20.10.0/24 | grep -B 2 "Raspberry Pi"
 
 
 sudo nmap -sP 10.201.103.0/24 | grep -B 2 "Raspberry Pi"
+
+rsync -avzP pi4b@172.20.10.6:~/MAARCO/logs/ /home/jcohe/MAARCO/logs/
  

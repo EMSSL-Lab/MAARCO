@@ -85,6 +85,8 @@ fn main() -> std::io::Result<()> {
         return Ok(());
     }
 
+    println!("GPS connected: {} | Arduino connected: {}", gps_connected, arduino_connected);
+
 
     let mut parser = gps::parser::build_parser();
     let mut gga_fix_quality: Option<String> = None;
@@ -103,6 +105,7 @@ fn main() -> std::io::Result<()> {
     let mut ntrip_status: String = String::from("No connection");
     let mut last_imu_time = std::time::Instant::now();
     let mut anchor: Option<(f64, f64)> = None;
+    let mut last_gps_pos = Vector3::new(0.0, 0.0, 0.0);
     let telemetry_socket = std::net::UdpSocket::bind("0.0.0.0:0")?; // Telemetry socket
 
     // // --- EKF TUNING PANEL ---
@@ -140,6 +143,8 @@ fn main() -> std::io::Result<()> {
                         
     // Update this line to include the new parameter
     let mut total_distance = 0.0;
+    let relative_distance = 0.0;
+    
     let mut ekf = EKF::new(q_pos, q_vel, q_ori, r_fixed, r_float,cutoff_hz);
     let mut last_ekf_pos = ekf.p;    
 
@@ -165,7 +170,7 @@ fn main() -> std::io::Result<()> {
                 ekf.update_tuning(q_pos, q_vel, q_ori, r_fixed, r_float);
                 
                 // Log it so you know the command worked
-                println!("Gains Updated: Qp:{:.4} Qv:{:.4} Qo:{:.4} Rf:{:.4} Rfl:{:.4}", q_pos, q_vel, q_ori, r_fixed, r_float);
+                // println!("Gains Updated: Qp:{:.4} Qv:{:.4} Qo:{:.4} Rf:{:.4} Rfl:{:.4}", q_pos, q_vel, q_ori, r_fixed, r_float);
 
             }
         }
@@ -201,6 +206,20 @@ fn main() -> std::io::Result<()> {
                             };
 
                             ekf.update_gps(gps_pos_meters, r_value);
+                            last_gps_pos = gps_pos_meters;
+                            let gps_telemetry = format!("POS,{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2}",
+                                ekf.p.x,
+                                ekf.p.y,
+                                ekf.get_yaw_degrees(),
+                                total_distance,
+                                relative_distance,
+                                gps_pos_meters.x, // Raw GPS X
+                                gps_pos_meters.y  // Raw GPS Y
+                            );
+                            // println!("TX telemetry (GPS update): {}", gps_telemetry);
+                            if let Err(_err) = telemetry_socket.send_to(gps_telemetry.as_bytes(), "172.20.10.5:5008") {
+                                // eprintln!("Telemetry send error: {}", err);
+                            }
                             // Inside main loop after ekf.predict or ekf.update_gps
                         }
                     }
@@ -230,35 +249,63 @@ fn main() -> std::io::Result<()> {
                 let dt_imu = now.duration_since(last_imu_time).as_secs_f64();
                 last_imu_time = now;
 
+                let lin_accel_x = sensor_data.acc_lin_x.unwrap_or(0.0) as f64;
+                let lin_accel_y = sensor_data.acc_lin_y.unwrap_or(0.0) as f64;
+                let lin_accel_z = sensor_data.acc_lin_z.unwrap_or(0.0) as f64;
+
+                let gyro_x = sensor_data.gyro_x.unwrap_or(0.0) as f64;
+                let gyro_y = sensor_data.gyro_y.unwrap_or(0.0) as f64;
+                let gyro_z = sensor_data.gyro_z.unwrap_or(0.0) as f64;
+
                 if dt_imu > 0.0 && dt_imu < 0.5 {
                     // Use .unwrap_or(0.0) since your fields are Option<f32>
+                    let lin_accel_z_new = lin_accel_z;
+                    let lin_accel_x_new = lin_accel_y;
+                    let lin_accel_y_new = -lin_accel_x;
                     let accel = Vector3::new(
-                        sensor_data.acc_lin_x.unwrap_or(0.0) as f64,
-                        sensor_data.acc_lin_y.unwrap_or(0.0) as f64,
-                        sensor_data.acc_lin_z.unwrap_or(0.0) as f64,
+                        lin_accel_z_new,
+                        lin_accel_x_new,
+                        lin_accel_y_new,
                     );
 
+                    let pitch_rate = gyro_z;
+                    let roll_rate = -gyro_y;
+                    let yaw_rate = -gyro_x;
                     let gyro = Vector3::new(
-                        sensor_data.gyro_x.unwrap_or(0.0) as f64,
-                        sensor_data.gyro_y.unwrap_or(0.0) as f64,
-                        sensor_data.gyro_z.unwrap_or(0.0) as f64,
+                        pitch_rate,
+                        roll_rate,
+                        yaw_rate,
                     );
 
                     ekf.predict(accel, gyro, dt_imu);
-
-                    // Track distance for the log
-                    total_distance += (ekf.p - last_ekf_pos).norm();
+                    
+                    let diff = (ekf.p - last_ekf_pos).norm();
+                    // Define your "Reality Band"
+                    let floor = 0.005;   // 5mm: Ignore anything smaller (high-frequency noise)
+                    let ceiling = 0.5;   // 0.5m: Ignore any single-frame jump larger than this (EKF glitches)
+                    // Only accumulate if the movement is "sane"
+                    if diff > floor && diff < ceiling {
+                        total_distance += diff;
+                    }
+                    // Note: We update last_ekf_pos REGARDLESS of the filter to keep the delta small
                     last_ekf_pos = ekf.p;
-
+                    // Calculate the relative distance (displacement from start point 0,0,0)
+                    let relative_distance = ekf.p.norm();
                     // Protocol: POS, x, y, heading_degrees, total_distance
-                    let telemetry = format!("POS,{:.2},{:.2},{:.2},{:.2}", 
+                    let telemetry = format!("POS,{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2}", 
                         ekf.p.x, 
                         ekf.p.y, 
                         ekf.get_yaw_degrees(), 
-                        total_distance
+                        total_distance,
+                        relative_distance, // You can also send this if you want to track how far the robot has moved since the last GPS fix
+                        last_gps_pos.x, // Last known GPS X
+                        last_gps_pos.y  // Last known GPS Y
                     );
 
-                    let _ = telemetry_socket.send_to(telemetry.as_bytes(), "172.20.10.5:5008");
+                    // println!("TX telemetry (IMU update): {}", telemetry);
+                    if let Err(_err) = telemetry_socket.send_to(telemetry.as_bytes(), "172.20.10.5:5008") {
+                        // eprintln!("Telemetry send error: {}", err);
+                    }
 
                     let log_entry = maarco::logging_gyro::EkfLogData {
                         timestamp_ns: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64,
@@ -266,14 +313,18 @@ fn main() -> std::io::Result<()> {
                         pos_y: ekf.p.y,
                         vel_n: ekf.v.x,
                         vel_e: ekf.v.y,
+                        last_gps_pos_x: last_gps_pos.x, // Last known GPS X
+                        last_gps_pos_y: last_gps_pos.y,  // Last known GPS Y
                         distance_traveled: total_distance,
+                        relative_distance: relative_distance,
                         yaw_imu_deg: ekf.get_yaw_degrees(), // Ensure this method exists in your EKF
+                        euler_x: sensor_data.euler_x.unwrap_or(0.0) as f64,
                         q_pos: q_pos,                      // Your tuning parameter
-                        q_vel: q_vel,                      // Your tuning parameter
-                        q_ori: q_ori,                      // Your tuning parameter
+                        q_vel: q_vel,
+                        q_ori: q_ori,
                         r_fixed: r_fixed,                  // Your tuning parameter
-                        r_float: r_float,                  // Your tuning parameter
-                        error_percent: error,              // The error percentage sent from Python
+                        r_float: r_float,
+                        error_percent: error,
                     };
                     logger.log_ekf(log_entry);
                     display.update_ekf(&mut stdout,ekf.p,ekf.v,ekf.q,total_distance)?;
