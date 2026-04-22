@@ -22,13 +22,19 @@ const ALPHA: f64 = 0.02;
 const G: f64 = 9.81; // m/s^2
 // Deadband threshold to kill drift when idling 
 const DEADBAND_EPSILON: f64 = 0.05;
+// Earth radius in meters for haversine calculations
+const EARTH_RADIUS_M: f64 = 6_371_000.0;
 pub struct DistanceTracker {
     // Start position (set once on first GPS fix, never changes)
     start_lat: Option<f64>,
     start_lon: Option<f64>,
+    pub leg_start_lat: Option<f64>,
+    pub leg_start_lon: Option<f64>,
     // Running distance estimate (meters from start).
     // Reset to haversine value on each GPS pulse.
     pub distance_traveled_m: f64,
+    pub x: f64, // Relative X position in meters
+    pub y: f64, // Relative Y position in meters
     // Velocity used in kinematic equations (m/s).
     // Seeded from GPS speed; integrated forward between pulses.
     velocity_ms: f64,
@@ -55,12 +61,16 @@ impl DistanceTracker {
         Self {
             start_lat: None,
             start_lon: None,
+            leg_start_lat: None,
+            leg_start_lon: None,
             distance_traveled_m: 0.0,
             velocity_ms: 0.0,
             last_imu_time: None,
             accel_last: 0.0,
             accel_buffer: [0.0; 3],
-            buffer_idx: 0
+            buffer_idx: 0,
+            x: 0.0,
+            y: 0.0,
         }
     }
 
@@ -75,10 +85,18 @@ pub fn reset_for_new_target(&mut self) {
     self.accel_last = 0.0;
     self.accel_buffer = [0.0; 3];
     self.buffer_idx = 0;
-    println!("[DistTrack] Resetting for new target.");
+    self.x = 0.0;
+    self.y = 0.0;
+    println!("[DistTrack] Resetting for new target. Position: ({:.2}, {:.2})", self.x, self.y);
 }
 
-
+// Call this whenever a new waypoint is sent from Python
+    pub fn reset_leg(&mut self) {
+        self.leg_start_lat = None;
+        self.leg_start_lon = None;
+        self.distance_traveled_m = 0.0;
+        // NOTE: We intentionally DO NOT reset x and y here!
+    }
 
     // ── GPS update (called ~1 Hz) ─────────────────────────────────────────────
     //
@@ -87,33 +105,42 @@ pub fn reset_for_new_target(&mut self) {
     //   • Resets distance_traveled_m to haversine(start → this fix)
     //   • Resets velocity_ms to GPS-reported speed (converted km/h → m/s)
     pub fn update_gps(&mut self, lat: f64, lon: f64, speed_kmh: f64) {
-        // Lock start position once
+        // 1. Lock the global origin on the very first GPS pulse
         if self.start_lat.is_none() {
             self.start_lat = Some(lat);
             self.start_lon = Some(lon);
-            self.distance_traveled_m = 0.0;
-            self.velocity_ms = speed_kmh / 3.6;
-            println!(
-                "[DistTrack] Start locked: ({:.7}, {:.7}), v0 = {:.3} m/s",
-                lat,
-                lon,
-                self.velocity_ms
-            );
+            self.x = 0.0;
+            self.y = 0.0;
+            println!("[DistTrack] Global Origin Locked! Lat: {:.6}, Lon: {:.6}", lat, lon);
         } else {
-            // Reset fused total to authoritative GPS haversine distance
-            let start_lat = self.start_lat.unwrap();
-            let start_lon = self.start_lon.unwrap();
-            self.distance_traveled_m = haversine(start_lat, start_lon, lat, lon);
+            // 2. Update X and Y purely based on GPS difference from the origin
+            let orig_lat = self.start_lat.unwrap();
+            let orig_lon = self.start_lon.unwrap();
+            
+            let lat_diff = (lat - orig_lat).to_radians();
+            let lon_diff = (lon - orig_lon).to_radians();
+            let lat_avg = ((lat + orig_lat) / 2.0).to_radians();
 
-            // Re-seed velocity from GPS (drift correction), also convert speed to m/s
-            self.velocity_ms = speed_kmh / 3.6;
+            // X is East/West, Y is North/South in meters
+            self.x = lon_diff * EARTH_RADIUS_M * lat_avg.cos();
+            self.y = lat_diff * EARTH_RADIUS_M; 
+            
+        } 
 
-            println!(
-                "[DistTrack] GPS reset → dist = {:.3} m, v = {:.3} m/s",
-                self.distance_traveled_m, self.velocity_ms
-            );
+        // --- 2. LEG ORIGIN (Handles waypoint distance tracking) ---
+        if self.leg_start_lat.is_none() {
+            // Lock the start of the new leg
+            self.leg_start_lat = Some(lat);
+            self.leg_start_lon = Some(lon);
+            self.distance_traveled_m = 0.0;
+        } else {
+            // Calculate distance strictly from the start of THIS leg
+            let leg_lat = self.leg_start_lat.unwrap();
+            let leg_lon = self.leg_start_lon.unwrap();
+            self.distance_traveled_m = haversine(leg_lat, leg_lon, lat, lon);
         }
-        
+
+        self.velocity_ms = speed_kmh / 3.6;
     }
 
     // ── IMU Update (called ~10 Hz) ─────────────────────────────────────
@@ -125,6 +152,7 @@ pub fn reset_for_new_target(&mut self) {
         acc_y: f64,
         pitch_deg: f64,
         target_dist_m: f64,
+        current_yaw_deg: f64, 
     ) -> DistanceOutput {
         // ── Compute dt ──────────────────────────────────────────────────────
         let now = Instant::now();
@@ -179,6 +207,11 @@ pub fn reset_for_new_target(&mut self) {
         //  Integrate velocity for next step 
         self.velocity_ms = self.velocity_ms + accel_final * dt;
         
+        // --- NEW 10Hz Smooth X/Y Integration ---
+        let yaw_rad = current_yaw_deg.to_radians();
+        self.x += delta_kin * yaw_rad.sin(); // East-West
+        self.y += delta_kin * yaw_rad.cos(); // North-South
+
         DistanceOutput {
             arrived: self.distance_traveled_m >= target_dist_m - ARRIVAL_THRESHOLD_M,
             dist_traveled_m: self.distance_traveled_m,

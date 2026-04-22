@@ -11,14 +11,14 @@ mod distance_tracker;
 
 use clap::Parser;
 use crossterm::execute;
-use std::io::{self, Write, stdout};
+use std::io::{Write, stdout};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, TryRecvError};
 use yaw_control::PDController as YawController;
-use yaw_control::MotorCommands as YawCommands;
 use rpm_control::PDController as RpmController;
-use rpm_control::MotorCommands as RpmCommands;
 use distance_tracker::DistanceTracker;
+use std::net::UdpSocket; 
+use std::io::stdin;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -36,32 +36,33 @@ struct Args {
     #[arg(long)]
     log_file: Option<PathBuf>,
 }
-/// NEW*** Prompts user for a new target distance and yaw heading after arrival, for retasking.
+/// Prompts user for a new target distance and yaw heading after arrival, for retasking.
 /// Returns (new_distance, new_yaw).
-fn prompt_retask() -> (f64, f64, f64) {
-    let mut buf = String::new();
+// fn prompt_retask() -> (f64, f64, f64) {
+//     let mut buf = String::new();
 
-    println!("\n ------------------------------------------------------------------------------------------");
-    println!("Enter new target distance in meters:");
-    io::stdin().read_line(&mut buf).expect("Failed to read line");
-    let new_dist: f64 = buf.trim().parse().expect("Invalid number");
-    buf.clear();
+//     println!("\n ------------------------------------------------------------------------------------------");
+//     println!("Enter new target distance in meters:");
+//     io::stdin().read_line(&mut buf).expect("Failed to read line");
+//     let new_dist: f64 = buf.trim().parse().expect("Invalid number");
+//     buf.clear();
 
-    println!("Enter new target yaw heading in degrees:");
-    io::stdin().read_line(&mut buf).expect("Failed to read line");
-    let new_yaw: f64 = buf.trim().parse().expect("Invalid number");
-    buf.clear();
+//     println!("Enter new target yaw heading in degrees:");
+//     io::stdin().read_line(&mut buf).expect("Failed to read line");
+//     let new_yaw: f64 = buf.trim().parse().expect("Invalid number");
+//     buf.clear();
 
-    println!("Enter new target left motor RPM:");
-    io::stdin().read_line(&mut buf).expect("Failed to read line");
-    let new_rpm: f64 = buf.trim().parse().expect("Invalid number");
+//     println!("Enter new target left motor RPM:");
+//     io::stdin().read_line(&mut buf).expect("Failed to read line");
+//     let new_rpm: f64 = buf.trim().parse().expect("Invalid number");
 
-    println!("New leg: {:.1} m | New heading: {:.1} degrees | New target rpm: {:.1}  Starting...", new_dist, new_yaw, new_rpm);
-    println!(" ------------------------------------------------------------------------------------------\n");
+//     println!("New leg: {:.1} m | New heading: {:.1} degrees | New target rpm: {:.1}  Starting...", new_dist, new_yaw, new_rpm);
+//     println!(" ------------------------------------------------------------------------------------------\n");
     
-    (new_dist, new_yaw, new_rpm)
+//     (new_dist, new_yaw, new_rpm)
 
-} 
+// } 
+
 
 fn main() -> std::io::Result<()> {
     let args = Args::parse();
@@ -106,45 +107,45 @@ fn main() -> std::io::Result<()> {
     //
     // ─────────────────────────────────────────────────────────────────────────
 
+
     // ------------------------------------------------ User input -------------------------
     // Prompt user for control parameters at startup. No dynamic reconfiguration.
-
     let mut buf = String::new();
 
-    println!("Enter Yaw proportional gain (Kp):");
-    io::stdin().read_line(&mut buf)?;
-    let kp_yaw: f64 = buf.trim().parse().expect("Invalid number");
-    buf.clear();
+    // println!("Enter Yaw proportional gain (Kp):");
+    // io::stdin().read_line(&mut buf)?;
+    // let kp_yaw: f64 = buf.trim().parse().expect("Invalid number");
+    // buf.clear();
 
-    println!("Enter Yaw derivative gain (Kd):");
-    io::stdin().read_line(&mut buf)?;
-    let kd_yaw: f64 = buf.trim().parse().expect("Invalid number");
-    buf.clear();
+    // println!("Enter Yaw derivative gain (Kd):");
+    // io::stdin().read_line(&mut buf)?;
+    // let kd_yaw: f64 = buf.trim().parse().expect("Invalid number");
+    // buf.clear();
 
-    println!("Enter target yaw heading in degrees (0=North, 90=East):");
-    io::stdin().read_line(&mut buf)?;
-    let mut target_yaw: f64 = buf.trim().parse().expect("Invalid number");
-    buf.clear();
+    // println!("Enter target yaw heading in degrees (0=North, 90=East):");
+    // io::stdin().read_line(&mut buf)?;
+    // let mut target_yaw: f64 = buf.trim().parse().expect("Invalid number");
+    // buf.clear();
 
-    println!("Enter RPM proportional gain (Kp):");
-    io::stdin().read_line(&mut buf)?;
-    let kp_rpm: f64 = buf.trim().parse().expect("Invalid number");
-    buf.clear();
+    // println!("Enter RPM proportional gain (Kp):");
+    // io::stdin().read_line(&mut buf)?;
+    // let kp_rpm: f64 = buf.trim().parse().expect("Invalid number");
+    // buf.clear();
 
-    println!("Enter RPM derivative gain (Kd):");
-    io::stdin().read_line(&mut buf)?;
-    let kd_rpm: f64 = buf.trim().parse().expect("Invalid number");
-    buf.clear();
+    // println!("Enter RPM derivative gain (Kd):");
+    // io::stdin().read_line(&mut buf)?;
+    // let kd_rpm: f64 = buf.trim().parse().expect("Invalid number");
+    // buf.clear();
 
     println!("Enter target left motor RPM:");
-    io::stdin().read_line(&mut buf)?;
-    let mut target_rpm: f64 = buf.trim().parse().expect("Invalid number");
+    stdin().read_line(&mut buf)?;
+    let target_rpm: f64 = buf.trim().parse().expect("Invalid number");
     buf.clear();
 
-    println!("Enter target distance in meters:");
-    io::stdin().read_line(&mut buf)?;
-    let mut target_dist: f64 = buf.trim().parse().expect("Invalid number");
-    buf.clear();
+    // println!("Enter target distance in meters:");
+    // io::stdin().read_line(&mut buf)?;
+    // let mut target_dist: f64 = buf.trim().parse().expect("Invalid number");
+    // buf.clear();
 
     // base_throttle: fixed for the whole run.
     // Not touched by any controller — only dist_ctrl can override it to 1500
@@ -156,17 +157,29 @@ fn main() -> std::io::Result<()> {
     // ─────────────────────────────────────────────────────────────────────────
 
     // Set controller gains here
-    // let kp_yaw: f64 = 10.0;
-    // let kd_yaw: f64 = 1.0;
-    // let kp_rpm: f64 = 2.5;
-    // let kd_rpm: f64 = 0.5;
+    let kp_yaw: f64 = 5.0;
+    let kd_yaw: f64 = 1.0;
+    let kp_rpm: f64 = 0.7;
+    let kd_rpm: f64 = 0.05;
     
     
     // Initialize control variables
     let mut yaw_ctrl  = YawController::new(kp_yaw, kd_yaw);
     let mut rpm_ctrl  = RpmController::new(kp_rpm, kd_rpm);
     let mut dist_tracker = DistanceTracker::new();
-    let mut base_throttle: u64 = 1500; // Hardcode base throttle to be 1500, this will be adjusted based on the user's desired rpm input 
+    let mut base_throttle: u64 = 1600; 
+    
+    // Declare targets for yaw, rpm, and distance
+    let mut target_yaw: f64 = 0.0;
+    let mut target_dist: f64 = 0.0;
+    // let target_rpm: f64 = 20.0;
+
+    // *** NEW, "is active?" leg flag
+    let mut is_active_leg: bool = false;
+    // ADD SOCKET SETUP HERE
+    let socket = UdpSocket::bind("0.0.0.0:5007").expect("Couldn't bind to UDP Socket");
+    socket.set_nonblocking(true).expect("Couldn't set non-blocking");
+    let mut udp_buf = [0u8; 1024];
 
     // Initialize gps variables
     let mut parser = gps::parser::build_parser();
@@ -188,6 +201,46 @@ fn main() -> std::io::Result<()> {
 
     // =========================================================================
     loop {
+        // ***NEW Ground Control Station PARSING LOGIC
+        match socket.recv_from(&mut udp_buf) {
+            Ok((amt, _src)) => {
+                let msg = String::from_utf8_lossy(&udp_buf[..amt]);
+                let parts: Vec<&str> = msg.split(',').collect();
+                
+               if parts[0] == "NAV" && parts.len() == 3 {
+                if let (Ok(d), Ok(y)) = (parts[1].parse::<f64>(), parts[2].parse::<f64>()) {
+                    target_dist = d;
+                    target_yaw = y;
+                    is_active_leg = true;
+                    dist_tracker.reset_leg();
+                    dist_tracker.reset_for_new_target();
+                    yaw_ctrl.reset();
+                    rpm_ctrl.reset();
+                    rpm_ctrl.reset_base_throttle();
+                    println!("NAV: {:.3}m @ {:.3}°", target_dist, target_yaw);
+                } else {
+                    eprintln!("Invalid NAV format: {}", msg);
+                }
+            } else if parts[0] == "STOP" {
+                is_active_leg = false;
+                let _ = motor::update_pwm_l(&mut motor_pin_l, 1500); 
+                let _ = motor::update_pwm_r(&mut motor_pin_r, 1500);
+                println!("Stop command received.");
+            } else if parts[0] == "SET_ORIGIN" {
+                dist_tracker.reset_for_new_target();
+                println!("Origin reset.");
+            }
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {} // No data, keep moving
+            Err(e) => eprintln!("UDP Error: {}",e),
+        }
+
+
+
+
+
+
+
         // ── GPS branch (~1 Hz) ────────────────────────────────────────────────
         if gps_connected {
             let sentences = match gps_port.as_mut().unwrap().read_sentences() {
@@ -249,7 +302,8 @@ fn main() -> std::io::Result<()> {
 
 
 
-        // ── Arduino branch (~10 Hz) ───────────────────────────────────────────
+        // --- ARDUINO SENSOR BRANCH ---
+        // This is where your code processes the 10Hz data from the rover
         if arduino_connected {
             let sensor_data = match arduino_port.as_mut().unwrap().read_data() {
                 Ok(Some(d)) => d,
@@ -259,87 +313,60 @@ fn main() -> std::io::Result<()> {
             
             logger.log_sensor_data(&sensor_data);
             display.update_arduino(&mut stdout, &sensor_data)?;
-
-            // NEW DISTANCE CONTROLLER UPDATE ─────────────────────────────────────────
-              if let (Some(ay),Some(pitch)) = 
-                (sensor_data.acc_lin_y,sensor_data.euler_z) {
-             
-                let dist_out = dist_tracker.update_imu(
-                    // rpm_l as f64,
-                    // rpm_r as f64,
-                ay as f64,
-                    pitch as f64,
-                    target_dist,
-                );
+            
+            // --- WRAP ALL NAV LOGIC IN THIS NEW IF STATEMENT ---
+            
+                // 1. Update Distance Tracker
+                if let (Some(ay), Some(pitch), Some(yaw)) = 
+                    (sensor_data.acc_lin_y, sensor_data.euler_z, sensor_data.euler_x) {
+                    
+                    let dist_out = dist_tracker.update_imu(ay as f64, pitch as f64, target_dist, yaw as f64);
+                    
+                    let _ = display.update_distance_and_accel(&mut stdout, dist_out.dist_traveled_m as f32, dist_out.accel_filtered as f32);
+                    // Send Telemetry back to Python
+                    let telem_msg = format!("TELEM,{:.3},{:.3},{:.2}", dist_tracker.x, dist_tracker.y, yaw);
+                    let _ = socket.send_to(telem_msg.as_bytes(), "172.20.10.3:5008");
+                    
+                    if is_active_leg {
+                    // CHECK FOR ARRIVAL
+                    if dist_out.arrived {
+                        println!("Target reached! Stopping.");
+                        let _ = socket.send_to(b"ARRIVED", "172.20.10.3:5008");
+                        
+                        // DEACTIVATE: This stops the motors from running in the next loop
+                        is_active_leg = false; 
+                    }
                 
-                // Update estimated distance traveled and filtered accel in live display 
-                display.update_distance_and_accel(&mut stdout, dist_out.dist_traveled_m as f32,dist_out.accel_filtered as f32)?;
-              
 
-                println!("Distance traveled: {:.3} m",dist_out.dist_traveled_m);
-
-                if dist_out.arrived {
-                    println!(
-                        "Target reached! Traveled {:.3} m. Stopping.",
-                        dist_out.dist_traveled_m
-                    );
-                    let _ = motor::update_pwm_l(&mut motor_pin_l, 1500);
-                    let _ = motor::update_pwm_r(&mut motor_pin_r, 1500);
-                   
-
-                    // Retask prompt
-                    // Rover stays stopped until user inputs new target distance, yaw and rpm
-                    let (new_dist, new_yaw, new_rpm) = prompt_retask();
-                    target_dist = new_dist;
-                    target_yaw = new_yaw;
-                    target_rpm = new_rpm;
-                    
-                    
-                    // Reset controllers 
-                    dist_tracker.reset_for_new_target();
-                    rpm_ctrl.reset_base_throttle();
-                    rpm_ctrl.reset();
-                    yaw_ctrl.reset();
-
-                }
-
-            }
-            // --------------------------------------------------------------------------------------
-
-              // RPM controller — left motor only ──────────────────────
-            // Holds left motor at user-defined target_rpm using measured
-            // rpm_left feedback. Completely independent of right motor.
-            // base_throttle is mirrored inside rpm_ctrl to get the left baseline.
-            if let Some(rpm_l) = sensor_data.rpm_left {
-                let rpm_cmd: RpmCommands = rpm_ctrl.compute_motor_commands(
-                    rpm_l as f64,
-                    target_rpm,
-                    base_throttle,
-                );
-                base_throttle = rpm_cmd.base_throttle;
-                let _ = motor::update_pwm_l(&mut motor_pin_l, rpm_cmd.left_pwm as i64);
-            }
-         
-
-            // Yaw controller — right motor only ─────────────────────
-            // Varies right motor around base_throttle to hold target_yaw.
-            if let Some(euler_x) = sensor_data.euler_x {
-                let yaw_cmd: YawCommands = yaw_ctrl.compute_motor_commands(
-                    euler_x as f64,
-                    target_yaw,
-                    base_throttle,
-                );
-                let _ = motor::update_pwm_r(&mut motor_pin_r, yaw_cmd.right_pwm_us as i64);
-            }
-
-        
-           
+                // 2. Run Motor Controllers (Only while leg is active)
+                
+                    // Left Motor RPM Control
+                    if let Some(rpm_l) = sensor_data.rpm_left {
+                        let rpm_cmd = rpm_ctrl.compute_motor_commands(rpm_l as f64, target_rpm, base_throttle);
+                        base_throttle = rpm_cmd.base_throttle;
+                        let _ = motor::update_pwm_l(&mut motor_pin_l, rpm_cmd.left_pwm as i64);
+                    }
+                    // Right Motor Yaw Control
+                    if let Some(euler_x) = sensor_data.euler_x {
+                        let yaw_cmd = yaw_ctrl.compute_motor_commands(euler_x as f64, target_yaw, base_throttle);
+                        let _ = motor::update_pwm_r(&mut motor_pin_r, yaw_cmd.right_pwm_us as i64);
+                    }}
+                
+            } else {
+                // --- IDLE STATE: IF NOT ACTIVE, FORCE NEUTRAL ---
+                // This prevents the rover from creeping if it receives no waypoints
+                let _ = motor::update_pwm_l(&mut motor_pin_l, 1500);
+                let _ = motor::update_pwm_r(&mut motor_pin_r, 1500);
             }
         }
+        } // End of Arduino Sensor Branch
+        }
+        
+        
 
         // =========================================================================
 
-    }
+    
 
 
 
