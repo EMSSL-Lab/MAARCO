@@ -162,8 +162,8 @@ fn main() -> std::io::Result<()> {
                 q_ori = parts[3].parse().unwrap_or(q_ori);
                 r_fixed = parts[4].parse().unwrap_or(r_fixed);
                 r_float = parts[5].parse().unwrap_or(r_float);
-                cutoff_hz = parts[6].parse().unwrap_or(cutoff_hz);
                 r_standard = 25.0;
+                cutoff_hz = parts[6].parse().unwrap_or(cutoff_hz);
                 error = parts[7].parse().unwrap_or(error);
                 
                 // Apply to the live EKF instance WITHOUT losing state
@@ -276,6 +276,12 @@ fn main() -> std::io::Result<()> {
                         roll_rate,
                         yaw_rate,
                     );
+                    
+                    // Inside main.rs -> Arduino Handling
+                    let robot_yaw = -(sensor_data.euler_x.unwrap_or(0.0) as f64); // Assuming euler_x is yaw
+                    // 0.01 = High Trust, 1.0 = Low Trust (smooths out jitter)
+                    let r_yaw = 0.05; 
+                    ekf.update_yaw(robot_yaw, r_yaw);
 
                     ekf.predict(accel, gyro, dt_imu);
                     

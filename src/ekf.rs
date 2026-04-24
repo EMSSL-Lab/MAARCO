@@ -29,25 +29,67 @@ pub struct EKF {
 
 impl EKF {
 
-    // Inside impl EKF in src/ekf.rs
-    pub fn get_yaw_degrees(&self) -> f64 {
-        // 1. Convert Quaternion to Euler angles (Roll, Pitch, Yaw)
-        let euler = self.q.euler_angles();
+    pub fn update_yaw(&mut self, robot_yaw_deg: f64, r_yaw: f64) {
+        // 1. Convert sensor yaw (-180 to 180) to radians
+        let target_yaw_rad = robot_yaw_deg.to_radians();
         
-        // 2. The third value is Yaw (in radians)
-        let yaw_rad = euler.2;
+        // 2. Get current EKF yaw
+        let current_yaw_rad = self.q.euler_angles().2;
+
+        // 3. Calculate the shortest path (handling the 180/-180 flip)
+        let mut diff = target_yaw_rad - current_yaw_rad;
+        while diff > std::f64::consts::PI { diff -= 2.0 * std::f64::consts::PI; }
+        while diff < -std::f64::consts::PI { diff += 2.0 * std::f64::consts::PI; }
+
+        // 4. Standard Kalman Update
+        let mut h = SMatrix::<f64, 1, 9>::zeros();
+        h[(0, 8)] = 1.0; 
+
+        let s = (h * self.p_cov * h.transpose())[(0,0)] + r_yaw;
+        let k = self.p_cov * h.transpose() * (1.0 / s);
+
+        let update: Vector9 = k * diff;
         
-        // 3. Convert to degrees and normalize to 0-360 if preferred
-        let mut deg = yaw_rad.to_degrees();
+        // Apply position/velocity corrections (Yaw error correlates to Pos error!)
+        self.p += update.fixed_rows::<3>(0);
+        self.v += update.fixed_rows::<3>(3);
         
-        // Optional: Standardize turtle-friendly rotation
-        if deg < 0.0 {
-            deg += 360.0;
-        }
-        
-        deg
+        // Apply rotation correction
+        let q_corr = UnitQuaternion::from_scaled_axis(update.fixed_rows::<3>(6));
+        self.q = self.q * q_corr;
+
+        self.p_cov = (Matrix9::identity() - (k * h)) * self.p_cov;
     }
-    
+
+// Inside impl EKF in src/ekf.rs
+    // pub fn get_yaw_degrees(&self) -> f64 {
+    //     // 1. Convert Quaternion to Euler angles (Roll, Pitch, Yaw)
+    //     let euler = self.q.euler_angles();
+        
+    //     // 2. The third value is Yaw (in radians)
+    //     let yaw_rad = euler.2;
+        
+    //     // 3. Convert to degrees and normalize to 0-360 if preferred
+    //     let mut deg = yaw_rad.to_degrees();
+        
+    //     // Optional: Standardize turtle-friendly rotation
+    //     if deg < 0.0 {
+    //         deg += 360.0;
+    //     }
+        
+    //     deg
+    // }
+
+    pub fn get_yaw_degrees(&self) -> f64 {
+        let yaw_rad = self.q.euler_angles().2;
+        let deg = yaw_rad.to_degrees();
+        
+        // Keep it in the -180 to 180 range to match your IMU
+        if deg > 180.0 { deg - 360.0 }
+        else if deg < -180.0 { deg + 360.0 }
+        else { deg }
+    }
+
     pub fn new(q_pos: f64, q_vel: f64, q_ori: f64, r_fix: f64,    // <--- This must be named 'r_fix'
         r_float: f64, cutoff_freq: f64) -> Self {
         let p_cov = Matrix9::identity() * 1.0;
@@ -85,6 +127,12 @@ impl EKF {
         self.r_rtk_fixed = r_fix;
         self.r_rtk_float = r_float;
         // Optionally update your Process Noise matrix (Q) here if it's pre-calculated
+        // CRITICAL: Re-build the process noise matrix so the math actually changes
+        let mut q_new = nalgebra::SMatrix::<f64, 9, 9>::identity();
+        q_new.fixed_view_mut::<3, 3>(0, 0).copy_from(&(nalgebra::Matrix3::identity() * q_pos));
+        q_new.fixed_view_mut::<3, 3>(3, 3).copy_from(&(nalgebra::Matrix3::identity() * q_vel));
+        q_new.fixed_view_mut::<3, 3>(6, 6).copy_from(&(nalgebra::Matrix3::identity() * q_ori));
+        self.q_proc = q_new;
     }
     
     pub fn predict(&mut self, raw_accel: Vector3<f64>, gyro: Vector3<f64>, dt: f64) {

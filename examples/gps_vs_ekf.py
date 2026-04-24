@@ -13,9 +13,14 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 # --- CONFIGURATION ---
-GPS_FILE = Path("logs/2026-04-17_14-48-54_gps.csv")
-EKF_FILE = Path("logs/2026-04-17_14-48-54_ekf.csv")
+GPS_FILE = Path("logs/2026-04-17_14-20-12_gps.csv")
+EKF_FILE = Path("logs/2026-04-17_14-20-12_ekf.csv")
 # ---------------------
+
+GPS_FILE = Path("logs/2026-04-17_14-26-35_gps.csv")
+EKF_FILE = Path("logs/2026-04-17_14-26-35_ekf.csv")
+
+
 
 def plot_realigned():
     if not GPS_FILE.exists() or not EKF_FILE.exists(): return

@@ -860,122 +860,309 @@
 #     sim = RobotSimulator()
 #     turtle.done()
 
+# import turtle
+# import random
+# import math
+
+# class RobotSimulator:
+#     def __init__(self):
+#         # ---- WORLD PARAMETERS (In Meters) ----
+#         self.world_size = 20.0  # 20m x 20m total area
+#         self.window_px = 800
+        
+#         self.screen = turtle.Screen()
+#         self.screen.setup(width=self.window_px, height=self.window_px)
+#         # Coordinates: Bottom-left (-10, -10) to Top-right (10, 10)
+#         self.screen.setworldcoordinates(-self.world_size/2, -self.world_size/2, 
+#                                          self.world_size/2, self.world_size/2)
+#         self.screen.title("Robot PD Sim: 20x20m Grid")
+#         self.screen.bgcolor("#2c3e50")
+#         self.screen.tracer(0) 
+
+#         # Robot physical dimensions (approximate for display)
+#         self.robot_width = 0.4
+#         self.robot_length = 0.6
+
+#         # ---- DRAW GRID ----
+#         self.grid_tool = turtle.Turtle()
+#         self.grid_tool.hideturtle()
+#         self.draw_grid()
+
+#         # Lists and State
+#         self.waypoints = []
+#         self.current_wp_idx = 0
+#         self.is_running = False
+
+#         # ---- PATH DRAWER ----
+#         self.path_drawer = turtle.Turtle()
+#         self.path_drawer.hideturtle()
+#         self.path_drawer.pencolor("#7f8c8d")
+#         self.path_drawer.width(2)
+
+#         # ---- ROBOT ----
+#         self.robot = turtle.Turtle()
+#         self.robot.shape("triangle") # Simple shape for scaling
+#         self.robot.shapesize(stretch_wid=0.5, stretch_len=1) 
+#         self.robot.color("#3498db")
+#         self.robot.penup()
+
+#         # PD Control State
+#         self.yaw = 0.0
+#         self.kp = 0.6  # Proportional
+#         self.kd = 0.2  # Derivative
+#         self.last_error = 0.0
+#         self.vel = 0.05  # 5cm per frame (much more stable)
+
+#         # Input
+#         self.screen.onclick(self.add_waypoint)
+#         self.screen.onkey(self.start_sim, "space")
+#         self.screen.listen()
+
+#         self.screen.update()
+#         print("1. Click to add waypoints | 2. SPACE to start.")
+
+#     def draw_grid(self):
+#         self.grid_tool.pencolor("#34495e")
+#         for i in range(int(-self.world_size/2), int(self.world_size/2) + 1):
+#             # Vertical
+#             self.grid_tool.penup(); self.grid_tool.goto(i, -self.world_size/2); self.grid_tool.pendown()
+#             self.grid_tool.goto(i, self.world_size/2)
+#             # Horizontal
+#             self.grid_tool.penup(); self.grid_tool.goto(-self.world_size/2, i); self.grid_tool.pendown()
+#             self.grid_tool.goto(self.world_size/2, i)
+
+#     def add_waypoint(self, x, y):
+#         if not self.is_running:
+#             if not self.waypoints:
+#                 self.robot.goto(x, y)
+#                 self.path_drawer.penup()
+#                 self.path_drawer.goto(x, y)
+#                 self.path_drawer.pendown()
+            
+#             self.waypoints.append((x, y))
+#             self.path_drawer.goto(x, y)
+#             self.path_drawer.dot(8, "#e74c3c")
+#             self.screen.update()
+#             print(f"Added WP: ({x:.2f}m, {y:.2f}m)")
+
+#     def start_sim(self):
+#         if self.waypoints and not self.is_running:
+#             self.is_running = True
+#             self.robot.pendown()
+#             self.run_loop()
+
+#     def run_loop(self):
+#         if self.current_wp_idx >= len(self.waypoints):
+#             print("\nMission Complete!")
+#             return
+
+#         target_pos = self.waypoints[self.current_wp_idx]
+
+#         # 1. Calculate Target Heading
+#         dx = target_pos[0] - self.robot.xcor()
+#         dy = target_pos[1] - self.robot.ycor()
+#         target_yaw = math.degrees(math.atan2(dy, dx))
+
+#         # 2. Check for Arrival (Threshold should be small, like 0.2m)
+#         if self.robot.distance(target_pos) < 0.2:
+#             self.current_wp_idx += 1
+#             self.screen.ontimer(self.run_loop, 10)
+#             return
+
+#         # 3. Apply Noise/Drift
+#         self.yaw += random.uniform(-3.0, 5.0)
+
+#         # 4. PD Correction
+#         error = (target_yaw - self.yaw + 180) % 360 - 180
+#         derivative = error - self.last_error
+#         correction = (self.kp * error) + (self.kd * derivative)
+#         self.last_error = error
+
+#         self.yaw += correction
+#         self.robot.setheading(self.yaw)
+#         self.robot.forward(self.vel)
+
+#         self.screen.update()
+#         self.screen.ontimer(self.run_loop, 20)
+
+# if __name__ == "__main__":
+#     sim = RobotSimulator()
+#     turtle.done()
+
 import turtle
 import random
 import math
 
 class RobotSimulator:
     def __init__(self):
-        # ---- WORLD PARAMETERS (In Meters) ----
-        self.world_size = 20.0  # 20m x 20m total area
+        # ---- WORLD PARAMETERS ----
+        self.world_size = 20.0
         self.window_px = 800
         
         self.screen = turtle.Screen()
         self.screen.setup(width=self.window_px, height=self.window_px)
-        # Coordinates: Bottom-left (-10, -10) to Top-right (10, 10)
         self.screen.setworldcoordinates(-self.world_size/2, -self.world_size/2, 
                                          self.world_size/2, self.world_size/2)
-        self.screen.title("Robot PD Sim: 20x20m Grid")
+        self.screen.title("Robot PD: Sharp Turn Smoothing (>70°)")
         self.screen.bgcolor("#2c3e50")
         self.screen.tracer(0) 
 
-        # Robot physical dimensions (approximate for display)
-        self.robot_width = 0.4
-        self.robot_length = 0.6
-
-        # ---- DRAW GRID ----
         self.grid_tool = turtle.Turtle()
         self.grid_tool.hideturtle()
         self.draw_grid()
 
-        # Lists and State
-        self.waypoints = []
+        self.click_points = []  
+        self.waypoints = []     
         self.current_wp_idx = 0
         self.is_running = False
 
-        # ---- PATH DRAWER ----
-        self.path_drawer = turtle.Turtle()
+        # Visual layers
+        self.ui_drawer = turtle.Turtle()    # For red dots and dashed lines
+        self.ui_drawer.hideturtle()
+        self.path_drawer = turtle.Turtle()  # For the actual smoothed trajectory
         self.path_drawer.hideturtle()
-        self.path_drawer.pencolor("#7f8c8d")
-        self.path_drawer.width(2)
 
-        # ---- ROBOT ----
+        # Robot
         self.robot = turtle.Turtle()
-        self.robot.shape("triangle") # Simple shape for scaling
+        self.robot.shape("triangle") 
         self.robot.shapesize(stretch_wid=0.5, stretch_len=1) 
         self.robot.color("#3498db")
         self.robot.penup()
 
         # PD Control State
         self.yaw = 0.0
-        self.kp = 0.6  # Proportional
-        self.kd = 0.2  # Derivative
+        self.kp = 0.7 
+        self.kd = 0.3 
         self.last_error = 0.0
-        self.vel = 0.05  # 5cm per frame (much more stable)
+        self.vel = 0.08 
 
-        # Input
         self.screen.onclick(self.add_waypoint)
         self.screen.onkey(self.start_sim, "space")
         self.screen.listen()
 
         self.screen.update()
-        print("1. Click to add waypoints | 2. SPACE to start.")
+        print("Click to add points. Dashed = Input, Solid = Smoothed Robot Path. SPACE to start.")
 
     def draw_grid(self):
         self.grid_tool.pencolor("#34495e")
         for i in range(int(-self.world_size/2), int(self.world_size/2) + 1):
-            # Vertical
             self.grid_tool.penup(); self.grid_tool.goto(i, -self.world_size/2); self.grid_tool.pendown()
             self.grid_tool.goto(i, self.world_size/2)
-            # Horizontal
             self.grid_tool.penup(); self.grid_tool.goto(-self.world_size/2, i); self.grid_tool.pendown()
             self.grid_tool.goto(self.world_size/2, i)
 
+    def draw_dashed_line(self, p1, p2):
+        """ Draws a dashed line between two points """
+        self.ui_drawer.penup()
+        self.ui_drawer.goto(p1)
+        self.ui_drawer.pendown()
+        
+        dist = math.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2)
+        dash_length = 0.2
+        num_dashes = int(dist / (dash_length * 2))
+        
+        angle = math.atan2(p2[1]-p1[1], p2[0]-p1[0])
+        curr_pos = list(p1)
+        
+        for _ in range(num_dashes):
+            self.ui_drawer.pendown()
+            curr_pos[0] += math.cos(angle) * dash_length
+            curr_pos[1] += math.sin(angle) * dash_length
+            self.ui_drawer.goto(curr_pos[0], curr_pos[1])
+            self.ui_drawer.penup()
+            curr_pos[0] += math.cos(angle) * dash_length
+            curr_pos[1] += math.sin(angle) * dash_length
+            self.ui_drawer.goto(curr_pos[0], curr_pos[1])
+        
+        self.ui_drawer.goto(p2) # Ensure we reach the exact end
+
+    def get_angle_between(self, p1, p2, p3):
+        a = math.atan2(p1[1]-p2[1], p1[0]-p2[0])
+        b = math.atan2(p3[1]-p2[1], p3[0]-p2[0])
+        angle = math.degrees(abs(a - b))
+        if angle > 180: angle = 360 - angle
+        return angle
+
+    def update_visuals(self):
+        self.ui_drawer.clear()
+        self.path_drawer.clear()
+        self.waypoints = []
+
+        if not self.click_points: return
+
+        # 1. Draw Clicks & Dashed Intent
+        self.ui_drawer.pencolor("#95a5a6")
+        for i in range(len(self.click_points)):
+            p = self.click_points[i]
+            if i > 0:
+                self.draw_dashed_line(self.click_points[i-1], p)
+            self.ui_drawer.penup()
+            self.ui_drawer.goto(p)
+            self.ui_drawer.dot(8, "#e74c3c") # Persistent Red Dots
+
+        # 2. Generate and Draw Smoothed Path
+        if len(self.click_points) < 2: return
+        
+        self.waypoints = [self.click_points[0]]
+        for i in range(1, len(self.click_points) - 1):
+            p_prev, p_curr, p_next = self.click_points[i-1:i+2]
+            turn_angle = 180 - self.get_angle_between(p_prev, p_curr, p_next)
+
+            if turn_angle > 70:
+                steps = 15
+                m1 = ((p_prev[0]+p_curr[0])/2, (p_prev[1]+p_curr[1])/2)
+                m2 = ((p_curr[0]+p_next[0])/2, (p_curr[1]+p_next[1])/2)
+                for j in range(steps + 1):
+                    t = j / steps
+                    x = (1-t)**2 * m1[0] + 2*(1-t)*t * p_curr[0] + t**2 * m2[0]
+                    y = (1-t)**2 * m1[1] + 2*(1-t)*t * p_curr[1] + t**2 * m2[1]
+                    self.waypoints.append((x, y))
+            else:
+                self.waypoints.append(p_curr)
+        
+        self.waypoints.append(self.click_points[-1])
+
+        # Draw the solid smoothed path
+        self.path_drawer.pencolor("#bdc3c7")
+        self.path_drawer.width(1)
+        self.path_drawer.penup()
+        self.path_drawer.goto(self.waypoints[0])
+        self.path_drawer.pendown()
+        for pt in self.waypoints:
+            self.path_drawer.goto(pt)
+
+        self.screen.update()
+
     def add_waypoint(self, x, y):
-        if not self.is_running:
-            if not self.waypoints:
-                self.robot.goto(x, y)
-                self.path_drawer.penup()
-                self.path_drawer.goto(x, y)
-                self.path_drawer.pendown()
-            
-            self.waypoints.append((x, y))
-            self.path_drawer.goto(x, y)
-            self.path_drawer.dot(8, "#e74c3c")
-            self.screen.update()
-            print(f"Added WP: ({x:.2f}m, {y:.2f}m)")
+        if self.is_running: return
+        self.click_points.append((x, y))
+        self.update_visuals()
 
     def start_sim(self):
         if self.waypoints and not self.is_running:
             self.is_running = True
+            self.robot.goto(self.waypoints[0])
             self.robot.pendown()
+            self.robot.pencolor("#2ecc71")
             self.run_loop()
 
     def run_loop(self):
         if self.current_wp_idx >= len(self.waypoints):
-            print("\nMission Complete!")
+            print("Mission Complete!")
             return
 
-        target_pos = self.waypoints[self.current_wp_idx]
-
-        # 1. Calculate Target Heading
-        dx = target_pos[0] - self.robot.xcor()
-        dy = target_pos[1] - self.robot.ycor()
+        target = self.waypoints[self.current_wp_idx]
+        dx, dy = target[0] - self.robot.xcor(), target[1] - self.robot.ycor()
         target_yaw = math.degrees(math.atan2(dy, dx))
 
-        # 2. Check for Arrival (Threshold should be small, like 0.2m)
-        if self.robot.distance(target_pos) < 0.2:
+        if self.robot.distance(target) < 0.15:
             self.current_wp_idx += 1
             self.screen.ontimer(self.run_loop, 10)
             return
 
-        # 3. Apply Noise/Drift
-        self.yaw += random.uniform(-2.0, 2.0)
-
-        # 4. PD Correction
+        self.yaw += random.uniform(-6.5, 8.5) # Drift
         error = (target_yaw - self.yaw + 180) % 360 - 180
-        derivative = error - self.last_error
-        correction = (self.kp * error) + (self.kd * derivative)
+        correction = (self.kp * error) + (self.kd * (error - self.last_error))
         self.last_error = error
 
         self.yaw += correction
