@@ -12,7 +12,7 @@ class MissionControl:
         
         self.screen.setup(width=0.5, height=0.75)
         self.screen.bgcolor("#2c3e50")
-        self.screen.title("Rover GCS - [1] Start | [2] Clear | [3] STOP | [4] Set Origin | [5] Undo")
+        self.screen.title("Rover GCS - [1] Start | [2] Clear | [3] STOP | [4] Set Origin | [5] Undo | [6] RPM+ | [7] RPM- | Scroll to Zoom")
         
         # Scale: 1 unit = 1 meter
         self.view_size = 5.0 
@@ -79,8 +79,11 @@ class MissionControl:
         self.screen.onkey(self.emergency_stop, "3")
         self.screen.onkey(self.set_origin, "4")
         self.screen.onkey(self.undo_waypoint, "5")
+        self.screen.onkey(self.increase_rpm, "6")
+        self.screen.onkey(self.decrease_rpm, "7")
         self.screen.cv.bind("<MouseWheel>", self.zoom)
         # --- NEW NAVIGATION STATE VARIABLES ---
+        self.target_rpm = 30.0 # Default starting RPM
         self.waypoint_queue = []     # List to hold (x, y) tuples
         self.is_navigating = False   # Lock to prevent spamming commands
         self.active_waypoint = None
@@ -96,15 +99,16 @@ class MissionControl:
         
         
 
-    def draw_nav_info(self, distance, bearing):
-        # Use a dedicated pen to avoid flickering the whole screen
-        self.nav_pen.clear() # Only clear THIS pen's drawings 
-        # Position it in the top left for better visibility
-        self.nav_pen.goto(-self.view_size + 1, self.view_size - 3)
-        self.nav_pen.color("white")
-        info = f"DISTANCE TO WP: {distance:.2f}m | BEARING: {bearing:.1f}°"
-        self.nav_pen.write(info, font=("Verdana", 14, "bold"))
-        self.screen.update()
+    def draw_nav_info(self, dist, bearing):
+        self.nav_pen.clear()
+        x_pos = -self.view_size + 0.5 
+        y_pos = self.view_size - 0.8
+        self.nav_pen.goto(x_pos, y_pos)
+        
+        # Added RPM to the display string
+        info_str = f"DIST: {dist:.2f}m\nBRNG: {bearing:.1f}°\nRPM: {self.target_rpm:.1f}"
+        
+        self.nav_pen.write(info_str, align="left", font=("Arial", 12, "bold"))
     
     def draw_nav_state(self):
         # Only redraw if the state has changed to prevent screen flickering
@@ -192,7 +196,22 @@ class MissionControl:
                 self.grid_tool.write("0", align="left", font=("Verdana", 8, "bold"))
 
             current += 1 # Move 1 unit (1 meter)
-            
+
+        # --- 3. Draw Cardinal Direction Labels ---
+        self.grid_tool.pencolor("#11100F") # Orange color for directions
+        # North (+Y)
+        self.grid_tool.goto(0, self.view_size - 0.5)
+        self.grid_tool.write("NORTH", align="center", font=("Verdana", 10, "bold"))
+        # South (-Y)
+        self.grid_tool.goto(0, -self.view_size + 0.1)
+        self.grid_tool.write("SOUTH", align="center", font=("Verdana", 10, "bold"))
+        # East (+X)
+        self.grid_tool.goto(self.view_size - 0.1, 0.1)
+        self.grid_tool.write("EAST", align="right", font=("Verdana", 10, "bold"))
+        # West (-X)
+        self.grid_tool.goto(-self.view_size + 0.1, 0.1)
+        self.grid_tool.write("WEST", align="left", font=("Verdana", 10, "bold"))
+
         self.screen.update()
 
     def draw_origin(self):
@@ -218,6 +237,43 @@ class MissionControl:
         self.ui_pen.write("[1] START | [2] CLEAR | [3] STOP | [4] SET ORIGIN | [5] UNDO", font=("Verdana", 10, "normal"))
         self.screen.update()
 
+    def draw_path(self):
+        self.drawer.clear()
+        self.drawer.penup()
+        
+        curr_x, curr_y = self.current_rover_x, self.current_rover_y
+        
+        # 1. DRAW THE ACTIVE LEG
+        if self.active_waypoint:
+            self.drawer.goto(curr_x, curr_y)
+            
+            # Switch color based on navigation state
+            if self.is_navigating:
+                self.drawer.color("#2ecc71") # Green
+            else:
+                self.drawer.color("#f39c12") # Orange (Paused)
+                
+            self.drawer.pensize(3)
+            self.drawer.pendown()
+            self.drawer.goto(self.active_waypoint[0], self.active_waypoint[1])
+            self.drawer.penup()
+            self.drawer.dot(10) 
+            
+            start_x, start_y = self.active_waypoint[0], self.active_waypoint[1]
+        else:
+            start_x, start_y = curr_x, curr_y
+
+        # 2. DRAW THE QUEUED LEGS (RED)
+        self.drawer.color("#e74c3c")
+        self.drawer.pensize(1)
+        for wp in self.waypoint_queue:
+            self.drawer.goto(start_x, start_y)
+            self.drawer.pendown()
+            self.drawer.goto(wp[0], wp[1])
+            self.drawer.penup()
+            self.drawer.dot(8, "#e74c3c")
+            start_x, start_y = wp[0], wp[1]
+
     def handle_click(self, x, y):
         # If the click is too close to the center, ignore it
         dist_from_center = math.sqrt(x**2 + y**2)
@@ -225,65 +281,53 @@ class MissionControl:
             print("Point too close to origin! Click further away.")
             return
 
-        # --- THE FIX: Draw the path line BEFORE appending to the queue ---
-        if not self.is_navigating and len(self.waypoint_queue) == 0:
-            # First waypoint ever (or after clear): draw from rover
-            self.drawer.goto(self.current_rover_x, self.current_rover_y)
-        elif len(self.waypoint_queue) > 0:
-            # Draw from the last queued waypoint
-            prev_wp = self.waypoint_queue[-1]
-            self.drawer.goto(prev_wp[0], prev_wp[1])
-        elif self.active_waypoint:
-            # Draw from the currently active waypoint
-            self.drawer.goto(self.active_waypoint[0], self.active_waypoint[1])
-
-        self.drawer.pendown()
-        self.drawer.goto(x, y)
-        self.drawer.penup()
-        
-        # 1. Add to Queue AFTER drawing
+        # 1. Add to Queue
         self.waypoint_queue.append((x, y))
         
-        # 3. Draw it on the map
-        self.drawer.goto(x, y)
-        self.drawer.dot(8, "#e74c3c")
+        # 2. Redraw the path
+        self.draw_path()
+        
         print(f"Queued WP: ({x:.2f}, {y:.2f}) | Queue size: {len(self.waypoint_queue)}")
         self.screen.update()
 
-        # --- NEW: UPDATE UI TEXT IMMEDIATELY ON CLICK ---
-        # If we just placed the first waypoint and aren't driving yet, show the stats!
+        # --- UPDATE UI TEXT IMMEDIATELY ON CLICK ---
         if not self.is_navigating and len(self.waypoint_queue) == 1:
             dx = x - self.current_rover_x
             dy = y - self.current_rover_y
             
-            # 1. Calculate Distance
             dist = math.sqrt(dx**2 + dy**2)
-            
-            # 2. Calculate Bearing (Angle to waypoint: 0=North, 90=East)
             target_angle = math.degrees(math.atan2(dx, dy))
             if target_angle < 0:
                 target_angle += 360
                 
-            # 3. Draw it instantly
             self.draw_nav_info(dist, target_angle)
 
-        # 5. If the rover is idle, start driving immediately
-        # if not self.is_navigating:
-        #     self.send_next_waypoint()
-
     def start_mission(self):
-        # Only start if we are not currently driving AND we have points to drive to
-        if not self.is_navigating and len(self.waypoint_queue) > 0:
-            self.update_status("MISSION STARTED")
-            print("Mission started! Sending first waypoint...")
-            self.send_next_waypoint()
-            
-        elif len(self.waypoint_queue) == 0:
-            self.update_status("ERROR: No waypoints to start!")
-            print("Cannot start mission: Waypoint queue is empty.")
-            
-        else:
-            print("Rover is already navigating!")
+        if self.is_navigating:
+            print("Already navigating!")
+            return
+
+        # Case A: Resume existing waypoint
+        if self.active_waypoint:
+            print("Resuming mission...")
+            self.is_navigating = True
+            self.send_nav_command(self.active_waypoint[0], self.active_waypoint[1])
+        
+        # Case B: Grab from queue
+        elif self.waypoint_queue:
+            print("Starting mission from queue...")
+            self.is_navigating = True
+            self.active_waypoint = self.waypoint_queue.pop(0)
+            self.send_nav_command(self.active_waypoint[0], self.active_waypoint[1])
+        
+
+        self.draw_path() # Force refresh to turn line Green
+
+    def emergency_stop(self):
+        self.sock.sendto(b"STOP", RUST_SEND_ADDR)
+        self.is_navigating = False 
+        self.draw_path() # Force refresh to turn line Orange
+        self.update_status("EMERGENCY STOP SENT")
 
     def clear_mission(self):
         # Rust doesn't have a formal CLEAR yet, so we just clear the UI
@@ -294,26 +338,21 @@ class MissionControl:
         self.distance = 0.0
         self.target_angle = 0.0
         self.active_waypoint = None
-        self.draw_nav_info(self.distance, self.target_angle)
-        # Reset rover position to origin in UI
-        self.current_rover_x = 0.0
-        self.current_rover_y = 0.0
-        self.rover.goto(0.0, 0.0)
-        self.rover.setheading(0)
-        print("UI Cleared locally")
-        self.is_navigating = False  # Unlock the system
+        self.is_navigating = False  
+        self.draw_path()
+        self.screen.update()
+        print("Mission cleared!, Navigation reset.")
         
 
     def emergency_stop(self):
         # We can send a command that triggers (1500, 1500) in Rust
         self.sock.sendto(b"STOP", RUST_SEND_ADDR)
         
-        # --- NEW: Unlock the UI state ---
         self.is_navigating = False 
-        self.active_waypoint = None # Optional: Clear the active waypoint so it grabs the next one
         
+        self.draw_path() 
         self.update_status("EMERGENCY STOP SENT")
-        print("Sent: STOP")
+        print("Sent: STOP Command to Rover!")
 
     # Add this new method to the class:
     def set_origin(self):
@@ -325,32 +364,10 @@ class MissionControl:
         if self.waypoint_queue:
             self.waypoint_queue.pop()
             
-            # Redraw the path
-            self.drawer.clear()
-            self.drawer.penup()
-            
-            # Start drawing from the rover's current location
-            start_x, start_y = self.current_rover_x, self.current_rover_y
-            
-            # 1. Draw the line to the active waypoint (if it exists)
-            if self.active_waypoint:
-                self.drawer.goto(start_x, start_y)
-                self.drawer.pendown()
-                self.drawer.goto(self.active_waypoint[0], self.active_waypoint[1])
-                self.drawer.penup()
-                self.drawer.dot(8, "#e74c3c")
-                start_x, start_y = self.active_waypoint[0], self.active_waypoint[1]
-                
-            # 2. Draw the lines for the remaining queued waypoints
-            for wp in self.waypoint_queue:
-                self.drawer.goto(start_x, start_y)
-                self.drawer.pendown()
-                self.drawer.goto(wp[0], wp[1])
-                self.drawer.penup()
-                self.drawer.dot(8, "#e74c3c")
-                start_x, start_y = wp[0], wp[1]
-                
+            # Redraw the path instantly
+            self.draw_path()
             self.screen.update()
+            
             print(f"Undid last waypoint. Queue size: {len(self.waypoint_queue)}")
         else:
             print("No waypoints to undo.")
@@ -378,39 +395,64 @@ class MissionControl:
             self.ui_pen.color("#e74c3c") # Alizarin Red
             self.ui_pen.write("● SYSTEM OFFLINE", font=("Arial", 12, "bold"))
 
-    ### NEW METHOD TO SEND THE NEXT WAYPOINT IN THE QUEUE TO RUST
-    def send_next_waypoint(self):
-        # If queue is empty, we are done!
-        if len(self.waypoint_queue) == 0:
-            self.update_status("IDLE: All waypoints reached")
-            print("Queue empty. Standing by.")
-            return
+    def increase_rpm(self):
+        self.target_rpm += 5.0
+        self.send_rpm_to_rust()
+
+    def decrease_rpm(self):
+        self.target_rpm = max(0, self.target_rpm - 5.0) # Prevent negative RPM
+        self.send_rpm_to_rust()
+
+    def send_rpm_to_rust(self):
+        # Use the existing socket to send the new message type
+        rpm_msg = f"RPM,{self.target_rpm:.1f}"
+        self.sock.sendto(rpm_msg.encode(), RUST_SEND_ADDR)
         
-        # Pop the next waypoint off the front of the list
-        tx, ty = self.waypoint_queue.pop(0)
-        self.active_waypoint = (tx, ty)
-        
+        # Refresh the UI text immediately
+        # Using a dummy distance/bearing if not navigating
+        self.draw_nav_info(self.distance, self.target_angle)
+        print(f"Sent RPM Update: {self.target_rpm}")
+
+    def draw_rpm_ui(self):
+   
+        self.ui_pen.color("white")
+        self.ui_pen.goto(self.view_size - 1.5, self.view_size - 0.8) # Positioned below status
+        # Clear a small area first if needed, or just overwrite since UI pen clears often
+        self.ui_pen.write(f"Target RPM: {self.target_rpm:.1f}", font=("Arial", 11, "normal"))
+
+    def send_nav_command(self, tx, ty):
+        """Calculates distance/angle and sends the NAV packet to Rust."""
         # Calculate distance and angle relative to current position
         dx = tx - self.current_rover_x
         dy = ty - self.current_rover_y
         distance = math.sqrt(dx**2 + dy**2)
+        
+        # Calculate target angle for Rust
         target_angle = math.degrees(math.atan2(dy, dx))
         
-        # Calculate angle 
-        math_angle = math.degrees(math.atan2(dy, dx))
-        
-        # --- CONVERT MATH TO COMPASS HEADING ---
-        target_angle = (90 - math_angle) % 360 
-
-        # Send the command to Rust
+        # Send the Navigation instructions to Rust
         nav_msg = f"NAV,{distance:.3f},{target_angle:.3f}"
         self.sock.sendto(nav_msg.encode(), RUST_SEND_ADDR)
         
-        # Update UI & lock the system
-        self.is_navigating = True  # When true, rover is actively trying to drive to next waypoint
+        # Update UI text
         self.draw_nav_info(distance, target_angle)
         self.update_status(f"NAVIGATING to ({tx:.1f}, {ty:.1f})")
-        print(f"Sent NAV command: {distance:.2f}m at {target_angle:.1f}°")
+        print(f"Sent NAV: {distance:.2f}m at {target_angle:.1f}°")
+
+    ### NEW METHOD TO SEND THE NEXT WAYPOINT IN THE QUEUE TO RUST
+    def send_next_waypoint(self):
+        if len(self.waypoint_queue) == 0:
+            self.active_waypoint = None
+            self.is_navigating = False
+            self.draw_path()
+            self.update_status("IDLE: All waypoints reached")
+            return
+        
+        tx, ty = self.waypoint_queue.pop(0)
+        self.active_waypoint = (tx, ty)
+        self.is_navigating = True
+        self.send_nav_command(tx, ty)
+        self.draw_path()
 
 
     def update_rover(self):
@@ -432,6 +474,9 @@ class MissionControl:
                 # Move Turtle
                 self.rover.goto(self.current_rover_x, self.current_rover_y)
                 self.rover.setheading(turtle_angle)
+
+                # Redraw path so the green line anchors to the moving rover
+                self.draw_path()
                 
                 # --- NEW: CALCULATE REMAINING DISTANCE ---
                 # Figure out what point we should be measuring to
@@ -443,14 +488,11 @@ class MissionControl:
                     target_wp = self.waypoint_queue[0]        # Idle: Measure to the first queued point
                     
                 # If we have a target, calculate the distance and show it
-                if target_wp:
-                    target_x, target_y = target_wp
-                    
-                    dx = target_x - self.current_rover_x
-                    dy = target_y - self.current_rover_y
+                # Calculate distance to the active waypoint for the UI text
+                if self.active_waypoint:
+                    dx = self.active_waypoint[0] - self.current_rover_x
+                    dy = self.active_waypoint[1] - self.current_rover_y
                     remaining_dist = math.sqrt(dx**2 + dy**2)
-                    
-                    # Live update the text at the top of the screen
                     self.draw_nav_info(remaining_dist, rover_yaw)
                 else:
                     # If there are no waypoints at all, clear the text
@@ -470,6 +512,7 @@ class MissionControl:
         if time.time() - self.last_telemetry_time > 2.0:
             self.draw_heartbeat(False)
         self.draw_nav_state()
+        
         self.screen.update()
         self.screen.ontimer(self.update_rover, 50)
     

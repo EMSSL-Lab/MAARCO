@@ -182,7 +182,7 @@ pub fn reset_for_new_target(&mut self) {
 
         // ***NEW Filter Pipeline: Debias -> Median -> EMA -> Deadband
         // Step 1: Debias (Gravity Vector Component Removal)
-        let gravity_component = G*pitch_deg.to_radians().sin();
+        let gravity_component = G*pitch_deg.to_radians().sin().clamp(-G, G);
         let accel = acc_y - gravity_component;
         // Step 2: Median Filter to kill large spikes from impacts
         self.accel_buffer[self.buffer_idx] = accel;
@@ -205,7 +205,7 @@ pub fn reset_for_new_target(&mut self) {
         //  Accumulate distance traveled
         self.distance_traveled_m += delta_kin; 
         //  Integrate velocity for next step 
-        self.velocity_ms = self.velocity_ms + accel_final * dt;
+        self.velocity_ms = (self.velocity_ms + accel_final * dt).max(0.0); // Don't allow negative velocity
         
         // --- NEW 10Hz Smooth X/Y Integration ---
         let yaw_rad = current_yaw_deg.to_radians();

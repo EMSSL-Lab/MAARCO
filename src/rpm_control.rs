@@ -39,8 +39,7 @@ impl PDController {
     pub fn compute_motor_commands(
         &mut self,
         current_rpm: f64, // rpm of the left motor 
-        target_rpm: f64,  // User prompted
-        base_throttle: u64,  // Base throttle user prompted
+        target_rpm: f64,  // User prompted target rpm for the left motor 
     ) -> MotorCommands {
         let now = Instant::now();
         let dt = now.duration_since(self.last_time).as_secs_f64();

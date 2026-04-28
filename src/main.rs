@@ -137,10 +137,10 @@ fn main() -> std::io::Result<()> {
     // let kd_rpm: f64 = buf.trim().parse().expect("Invalid number");
     // buf.clear();
 
-    println!("Enter target left motor RPM:");
-    stdin().read_line(&mut buf)?;
-    let target_rpm: f64 = buf.trim().parse().expect("Invalid number");
-    buf.clear();
+    // println!("Enter target left motor RPM:");
+    // stdin().read_line(&mut buf)?;
+    // let target_rpm: f64 = buf.trim().parse().expect("Invalid number");
+    // buf.clear();
 
     // println!("Enter target distance in meters:");
     // io::stdin().read_line(&mut buf)?;
@@ -172,7 +172,7 @@ fn main() -> std::io::Result<()> {
     // Declare targets for yaw, rpm, and distance
     let mut target_yaw: f64 = 0.0;
     let mut target_dist: f64 = 0.0;
-    // let target_rpm: f64 = 20.0;
+    let mut target_rpm: f64 = 30.0;
 
     // *** NEW, "is active?" leg flag
     let mut is_active_leg: bool = false;
@@ -207,35 +207,38 @@ fn main() -> std::io::Result<()> {
                 let msg = String::from_utf8_lossy(&udp_buf[..amt]);
                 let parts: Vec<&str> = msg.split(',').collect();
                 
-               if parts[0] == "NAV" && parts.len() == 3 {
-                if let (Ok(d), Ok(y)) = (parts[1].parse::<f64>(), parts[2].parse::<f64>()) {
-                    target_dist = d;
-                    target_yaw = y;
-                    is_active_leg = true;
-                    dist_tracker.reset_leg();
+                if parts[0] == "NAV" && parts.len() == 3 {
+                    if let (Ok(d), Ok(y)) = (parts[1].parse::<f64>(), parts[2].parse::<f64>()) {
+                        target_dist = d;
+                        target_yaw = y;
+                        is_active_leg = true;
+                        dist_tracker.reset_leg();
+                        dist_tracker.reset_for_new_target();
+                        yaw_ctrl.reset();
+                        rpm_ctrl.reset();
+                        rpm_ctrl.reset_base_throttle();
+                        println!("NAV: {:.3}m @ {:.3}°", target_dist, target_yaw);
+                    } else {
+                        eprintln!("Invalid NAV format: {}", msg);
+                    }
+                } else if parts[0] == "RPM" && parts.len() == 2 {
+                    if let Ok(val) = parts[1].parse::<f64>() {
+                        target_rpm = val;
+                        println!("Target RPM updated via GCS: {:.1}", target_rpm);
+                    }
+                } else if parts[0] == "STOP" {
+                    is_active_leg = false;
+                    let _ = motor::update_pwm_l(&mut motor_pin_l, 1500); 
+                    let _ = motor::update_pwm_r(&mut motor_pin_r, 1500);
+                    println!("Stop command received.");
+                } else if parts[0] == "SET_ORIGIN" {
                     dist_tracker.reset_for_new_target();
-                    yaw_ctrl.reset();
-                    rpm_ctrl.reset();
-                    rpm_ctrl.reset_base_throttle();
-                    println!("NAV: {:.3}m @ {:.3}°", target_dist, target_yaw);
-                } else {
-                    eprintln!("Invalid NAV format: {}", msg);
+                    println!("Origin reset.");
                 }
-            } else if parts[0] == "STOP" {
-                is_active_leg = false;
-                let _ = motor::update_pwm_l(&mut motor_pin_l, 1500); 
-                let _ = motor::update_pwm_r(&mut motor_pin_r, 1500);
-                println!("Stop command received.");
-            } else if parts[0] == "SET_ORIGIN" {
-                dist_tracker.reset_for_new_target();
-                println!("Origin reset.");
             }
-            }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {} // No data, keep moving
-            Err(e) => eprintln!("UDP Error: {}",e),
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {} 
+            Err(e) => eprintln!("UDP Error: {}", e),
         }
-
-
 
 
 
@@ -304,6 +307,7 @@ fn main() -> std::io::Result<()> {
 
         // --- ARDUINO SENSOR BRANCH ---
         // This is where your code processes the 10Hz data from the rover
+        // --- ARDUINO SENSOR BRANCH ---
         if arduino_connected {
             let sensor_data = match arduino_port.as_mut().unwrap().read_data() {
                 Ok(Some(d)) => d,
@@ -314,51 +318,48 @@ fn main() -> std::io::Result<()> {
             logger.log_sensor_data(&sensor_data);
             display.update_arduino(&mut stdout, &sensor_data)?;
             
-            // --- WRAP ALL NAV LOGIC IN THIS NEW IF STATEMENT ---
-            
-                // 1. Update Distance Tracker
-                if let (Some(ay), Some(pitch), Some(yaw)) = 
-                    (sensor_data.acc_lin_y, sensor_data.euler_z, sensor_data.euler_x) {
-                    
-                    let dist_out = dist_tracker.update_imu(ay as f64, pitch as f64, target_dist, yaw as f64);
-                    
-                    let _ = display.update_distance_and_accel(&mut stdout, dist_out.dist_traveled_m as f32, dist_out.accel_filtered as f32);
-                    // Send Telemetry back to Python
-                    let telem_msg = format!("TELEM,{:.3},{:.3},{:.2}", dist_tracker.x, dist_tracker.y, yaw);
-                    let _ = socket.send_to(telem_msg.as_bytes(), "172.20.10.3:5008");
-                    
-                    if is_active_leg {
-                    // CHECK FOR ARRIVAL
+            // 1. Always update the distance tracker and send telemetry
+            if let (Some(ay), Some(pitch), Some(yaw)) = 
+                (sensor_data.acc_lin_y, sensor_data.euler_y, sensor_data.euler_x) {
+                
+                let dist_out = dist_tracker.update_imu(ay as f64, pitch as f64, target_dist, yaw as f64);
+                let _ = display.update_distance_and_accel(&mut stdout, dist_out.dist_traveled_m as f32, dist_out.accel_filtered as f32);
+                
+                // Send live position back to Python
+                let telem_msg = format!("TELEM,{:.3},{:.3},{:.2}", dist_tracker.x, dist_tracker.y, yaw);
+                let _ = socket.send_to(telem_msg.as_bytes(), "172.20.10.3:5008");
+                
+                // 2. Control Logic (Only if the mission is active)
+                if is_active_leg {
+                    // Check for Arrival
                     if dist_out.arrived {
                         println!("Target reached! Stopping.");
                         let _ = socket.send_to(b"ARRIVED", "172.20.10.3:5008");
-                        
-                        // DEACTIVATE: This stops the motors from running in the next loop
                         is_active_leg = false; 
                     }
-                
 
-                // 2. Run Motor Controllers (Only while leg is active)
-                
                     // Left Motor RPM Control
                     if let Some(rpm_l) = sensor_data.rpm_left {
-                        let rpm_cmd = rpm_ctrl.compute_motor_commands(rpm_l as f64, target_rpm, base_throttle);
+                        let rpm_cmd = rpm_ctrl.compute_motor_commands(rpm_l as f64, target_rpm);
                         base_throttle = rpm_cmd.base_throttle;
                         let _ = motor::update_pwm_l(&mut motor_pin_l, rpm_cmd.left_pwm as i64);
                     }
-                    // Right Motor Yaw Control
+                    // Right Motor Yaw Control (Heading)
                     if let Some(euler_x) = sensor_data.euler_x {
                         let yaw_cmd = yaw_ctrl.compute_motor_commands(euler_x as f64, target_yaw, base_throttle);
                         let _ = motor::update_pwm_r(&mut motor_pin_r, yaw_cmd.right_pwm_us as i64);
-                    }}
-                
+                    }
+                } else {
+                    // MISSION NOT ACTIVE: Force motors to neutral
+                    let _ = motor::update_pwm_l(&mut motor_pin_l, 1500);
+                    let _ = motor::update_pwm_r(&mut motor_pin_r, 1500);
+                }
             } else {
-                // --- IDLE STATE: IF NOT ACTIVE, FORCE NEUTRAL ---
-                // This prevents the rover from creeping if it receives no waypoints
+                // SENSOR DATA MISSING: Safety stop
                 let _ = motor::update_pwm_l(&mut motor_pin_l, 1500);
                 let _ = motor::update_pwm_r(&mut motor_pin_r, 1500);
             }
-        }
+        } // End of arduino_connected branch
         } // End of Arduino Sensor Branch
         }
         
