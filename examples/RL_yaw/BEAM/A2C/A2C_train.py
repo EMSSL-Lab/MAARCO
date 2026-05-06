@@ -1,5 +1,5 @@
 import gymnasium as gym
-from stable_baselines3 import SAC
+from stable_baselines3 import A2C
 
 import sys
 import os
@@ -38,20 +38,30 @@ def make_env(rank, seed=0):
     set_random_seed(seed)
     return _init
 
-def train_sac():
+def train_a2c():
     num_cpu = 4  # Use your 4 cores
     env = SubprocVecEnv([make_env(i) for i in range(num_cpu)])
 
-    model = SAC("MlpPolicy", env, batch_size= 512, verbose=1)
+    model = A2C(
+        "MlpPolicy", 
+        env, 
+        n_steps=128,      # Steps per env before update
+        gamma=0.99, 
+        learning_rate=7e-4, 
+        verbose=1,
+        tensorboard_log="./a2c_beam_logs/"
+    )
     stop_callback = StopTrainingOnSignal()
     try:
         model.learn(total_timesteps=100000, callback=stop_callback)
     except KeyboardInterrupt:
         print("\nKeyboardInterrupt detected! Stopping training and saving model...")
     finally:
-        model.save("examples/RL_yaw/BEAM/SAC/sac_ball_beam_model")
-        print("Model saved as sac_ball_beam_model.zip")
+            save_path = "examples/RL_yaw/BEAM/A2C/a2c_ball_beam_model"
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            model.save(save_path)
+            print(f"Model saved as {save_path}.zip")
 
 
 if __name__ == "__main__":
-    train_sac()
+    train_a2c()

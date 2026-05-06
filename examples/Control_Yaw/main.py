@@ -17,7 +17,7 @@ def run_sim():
             steer = str.compute(error)
 
             
-            rover.move(steer)
+            rover.move(steering2)
             turtle.ontimer(step, 20)
         else:
             print("Path Complete.")

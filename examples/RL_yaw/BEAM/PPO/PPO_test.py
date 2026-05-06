@@ -42,7 +42,7 @@ def test_ppo(apply_disturbance=True):
         if step % 5 == 0:
             print(f"{step:<6} | {kp:.4f} | {ki:.4f} | {kd:.4f} | {ball_pos:.4f}m")
         
-        if terminated or truncated:
+        if terminated:
             # Render one last time and pause so we can see the failure
             env.render()
             print(f"Fail at step {step}. Ball Pos: {ball_pos:.4f}m")

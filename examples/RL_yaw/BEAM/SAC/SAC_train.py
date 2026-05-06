@@ -42,7 +42,11 @@ def train_sac():
     num_cpu = 4  # Use your 4 cores
     env = SubprocVecEnv([make_env(i) for i in range(num_cpu)])
 
-    model = SAC("MlpPolicy", env, batch_size= 512, verbose=1)
+    model = SAC(
+        "MlpPolicy", 
+        env, 
+        batch_size= 512, 
+        verbose=1)
     stop_callback = StopTrainingOnSignal()
     try:
         model.learn(total_timesteps=100000, callback=stop_callback)

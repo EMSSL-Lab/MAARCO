@@ -1,11 +1,12 @@
 import gymnasium as gym
-from stable_baselines3 import SAC
+from stable_baselines3 import TD3
+from stable_baselines3.common.noise import NormalActionNoise
 
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from beam import BallAndBeamPIDEnv  # Assuming your class is in beam.py
-
+import numpy as np
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.callbacks import BaseCallback
@@ -38,20 +39,45 @@ def make_env(rank, seed=0):
     set_random_seed(seed)
     return _init
 
-def train_sac():
+def train_td3():
     num_cpu = 4  # Use your 4 cores
     env = SubprocVecEnv([make_env(i) for i in range(num_cpu)])
 
-    model = SAC("MlpPolicy", env, batch_size= 512, verbose=1)
+    # TD3 Exploration Noise
+    n_actions = env.action_space.shape[-1]
+    
+    # Scale noise to 10% of the gain range (0.1 * 0.1 = 0.01)
+    action_noise = NormalActionNoise(
+        mean=np.zeros(n_actions), 
+        sigma=0.01 * np.ones(n_actions)
+    )
+
+    model = TD3(
+        "MlpPolicy", 
+        env, 
+        action_noise=action_noise,
+        batch_size=256,         # Slightly smaller batch often helps TD3 stability
+        learning_starts=1000,   # Collect 1000 steps of random data first
+        tau=0.005,              # Soft update coefficient
+        train_freq=1,           # Update every step
+        gradient_steps=1,
+        verbose=1,
+        tensorboard_log="./td3_beam_logs/"
+    )
+    
     stop_callback = StopTrainingOnSignal()
+    
     try:
         model.learn(total_timesteps=100000, callback=stop_callback)
     except KeyboardInterrupt:
-        print("\nKeyboardInterrupt detected! Stopping training and saving model...")
+        pass
     finally:
-        model.save("examples/RL_yaw/BEAM/SAC/sac_ball_beam_model")
-        print("Model saved as sac_ball_beam_model.zip")
+        save_path = "examples/RL_yaw/BEAM/TD3/td3_ball_beam_model"
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        model.save(save_path)
+        env.close()
+        print(f"Model saved to {save_path}")
 
 
 if __name__ == "__main__":
-    train_sac()
+    train_td3()
