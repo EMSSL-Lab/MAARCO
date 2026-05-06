@@ -1,2 +1,0 @@
-timestamp_ns,time_ms,voltage_left,current_left_ma,voltage_right,current_right_ma,motor_current_left,motor_current_right,euler_x,euler_y,euler_z,acc_lin_x,acc_lin_y,acc_lin_z,sonar_mm,tof_mm,rpm_left,rpm_right,rotations_left,rotations_right
-1774374906808871891,,0.21,-0.08,-0.06,8.19,12.19,-0.01,0.0,-0.05,260.17,264.0,0.0,0.0,,-0.06,260.17,264.0,0.0,0.0
