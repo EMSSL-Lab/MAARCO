@@ -35,6 +35,11 @@ path = "src/bin/main_EKF.rs"
 name = "maarco_Tune"
 path = "src/bin/main_EKF_Tune.rs"
 
+[[bin]]
+name = "maarco_yaw"
+path = "src/bin/main_yaw.rs"
+
+
 
 [dependencies]
 base64 = "0.22.1"
