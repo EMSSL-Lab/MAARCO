@@ -187,6 +187,7 @@ fn main() -> std::io::Result<()> {
     let mut stdout = stdout();
     let mut display = display::Display::new();
 
+
     // Initialize terminal
     execute!(stdout, crossterm::cursor::SetCursorStyle::BlinkingBlock)?;
 
@@ -222,6 +223,7 @@ fn main() -> std::io::Result<()> {
                         eprintln!("Invalid NAV format: {}", msg);
                     }
                 } else if parts[0] == "RPM" && parts.len() == 2 {
+
                     if let Ok(val) = parts[1].parse::<f64>() {
                         target_rpm = val;
                         println!("Target RPM updated via GCS: {:.1}", target_rpm);
@@ -325,16 +327,27 @@ fn main() -> std::io::Result<()> {
                 let dist_out = dist_tracker.update_imu(ay as f64, pitch as f64, target_dist, yaw as f64);
                 let _ = display.update_distance_and_accel(&mut stdout, dist_out.dist_traveled_m as f32, dist_out.accel_filtered as f32);
                 
-                // Send live position back to Python
-                let telem_msg = format!("TELEM,{:.3},{:.3},{:.2}", dist_tracker.x, dist_tracker.y, yaw);
-                let _ = socket.send_to(telem_msg.as_bytes(), "172.20.10.3:5008");
+                // Send live position + GPS fix quality back to Python
+                let fix_label = match gga_fix_quality
+                    .as_deref()
+                    .and_then(|q| q.trim().parse::<u8>().ok())
+                    .unwrap_or(0)
+                {
+                    1 => "GPS",
+                    2 => "DGPS",
+                    4 => "RTK_FIX",
+                    5 => "RTK_FLOAT",
+                    _ => "NO_FIX",
+                };
+                let telem_msg = format!("TELEM,{:.3},{:.3},{:.2},{}", dist_tracker.x, dist_tracker.y, yaw, fix_label);
+                let _ = socket.send_to(telem_msg.as_bytes(), "172.20.10.7:5008");
                 
                 // 2. Control Logic (Only if the mission is active)
                 if is_active_leg {
                     // Check for Arrival
                     if dist_out.arrived {
                         println!("Target reached! Stopping.");
-                        let _ = socket.send_to(b"ARRIVED", "172.20.10.3:5008");
+                        let _ = socket.send_to(b"ARRIVED", "172.20.10.7:5008");
                         is_active_leg = false; 
                     }
 
@@ -362,6 +375,10 @@ fn main() -> std::io::Result<()> {
         } // End of arduino_connected branch
         } // End of Arduino Sensor Branch
         }
+        
+        
+
+        // =========================================================================
         
         
 

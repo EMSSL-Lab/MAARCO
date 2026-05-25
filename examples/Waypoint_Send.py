@@ -2,53 +2,136 @@ import turtle
 import socket
 import math
 import time
+import tkinter as tk
+
 # UPDATE THESE TO YOUR ACTUAL IPs
-RUST_SEND_ADDR = ("172.20.10.4", 5007) 
-PYTHON_LISTEN_ADDR = ("0.0.0.0", 5008)  
+RUST_SEND_ADDR = ("172.20.10.4", 5007)
+PYTHON_LISTEN_ADDR = ("0.0.0.0", 5008)
+
 
 class MissionControl:
     def __init__(self):
         self.screen = turtle.Screen()
-        
-        self.screen.setup(width=0.5, height=0.75)
+        self.screen.setup(width=0.65, height=0.75)
         self.screen.bgcolor("#2c3e50")
-        self.screen.title("Rover GCS - [1] Start | [2] Clear | [3] STOP | [4] Set Origin | [5] Undo | [6] RPM+ | [7] RPM- | Scroll to Zoom")
-        
-        # Scale: 1 unit = 1 meter
-        self.view_size = 5.0 
-        self.screen.setworldcoordinates(-self.view_size, -self.view_size, 
-                                         self.view_size, self.view_size)
-        self.screen.tracer(0)
+        self.screen.title("Rover GCS - [1] Start | [2] Clear | [3] STOP | [4] Set Origin | [5] Undo | [6] RPM+ | [7] RPM- | Scroll=Zoom | Drag=Pan")
 
-        # UI Text Drawer
-        self.nav_pen = turtle.Turtle()
-        self.nav_pen.hideturtle()
-        self.nav_pen.penup()
-        self.nav_pen.color("white")
-        self.ui_pen = turtle.Turtle()
-        self.ui_pen.hideturtle()
-        self.ui_pen.penup()
-        self.ui_pen.color("white")
+        # ── VIEW STATE ────────────────────────────────────────────────────────
+        # view_size: half-width/height of the visible world in meters
+        # pan_x/pan_y: world-space center of the current view (origin starts at 0,0)
+        self.view_size = 5.0
+        self.pan_x     = 0.0
+        self.pan_y     = 0.0
+
+        # ── TKINTER SETUP ─────────────────────────────────────────────────────
+        self.tk_root   = self.screen._root
+        self.tk_canvas = self.screen.getcanvas()
+        self.HUD_W     = 270
+
+        self.screen.tracer(0)
+        self.tk_root.update_idletasks()
+        win_w = self.tk_root.winfo_width()
+        win_h = self.tk_root.winfo_height()
+
+        self.tk_canvas.config(width=win_w - self.HUD_W, height=win_h)
+        self.tk_canvas.grid(row=0, column=0, sticky="nsew")
+
+        # ── HUD PANEL ─────────────────────────────────────────────────────────
+        self.hud_frame = tk.Frame(self.tk_root, bg="#1a252f",
+                                  width=self.HUD_W, bd=2, relief="sunken")
+        self.hud_frame.grid(row=0, column=1, sticky="nsew")
+        self.hud_frame.grid_propagate(False)
+
+        self.tk_root.columnconfigure(0, weight=1)
+        self.tk_root.columnconfigure(1, weight=0)
+        self.tk_root.rowconfigure(0, weight=1)
+
+        pad = dict(padx=8, pady=3, anchor="w")
+
+        tk.Label(self.hud_frame, text="══ ROVER HUD ══",
+                 bg="#1a252f", fg="#ecf0f1",
+                 font=("Arial", 11, "bold")).pack(pady=(10, 4))
+
+        self.lbl_system = tk.Label(self.hud_frame, text="● SYSTEM OFFLINE",
+                                   bg="#1a252f", fg="#e74c3c",
+                                   font=("Arial", 11, "bold"))
+        self.lbl_system.pack(**pad)
+
+        tk.Frame(self.hud_frame, bg="#34495e", height=1).pack(fill="x", padx=6, pady=4)
+
+        self.lbl_nav_state = tk.Label(self.hud_frame, text="STATUS: IDLE / STANDBY",
+                                      bg="#1a252f", fg="#ac7715",
+                                      font=("Arial", 10, "bold"),
+                                      wraplength=self.HUD_W - 16, justify="left")
+        self.lbl_nav_state.pack(**pad)
+
+        tk.Frame(self.hud_frame, bg="#34495e", height=1).pack(fill="x", padx=6, pady=4)
+
+        tk.Label(self.hud_frame, text="TELEMETRY",
+                 bg="#1a252f", fg="#7f8c8d",
+                 font=("Arial", 9, "bold")).pack(**pad)
+
+        self.lbl_dist = tk.Label(self.hud_frame, text="DIST TO TARGET:  —",
+                                  bg="#1a252f", fg="#ecf0f1",
+                                  font=("Courier", 11, "bold"))
+        self.lbl_dist.pack(**pad)
+
+        self.lbl_brng = tk.Label(self.hud_frame, text="BEARING TO TARGET:  —",
+                                  bg="#1a252f", fg="#ecf0f1",
+                                  font=("Courier", 11, "bold"))
+        self.lbl_brng.pack(**pad)
+
+        self.lbl_rpm = tk.Label(self.hud_frame, text="RPM SETPOINT:   30.0",
+                                 bg="#1a252f", fg="#ecf0f1",
+                                 font=("Courier", 11, "bold"))
+        self.lbl_rpm.pack(**pad)
+
+        # GPS fix quality label
+        self.lbl_gps = tk.Label(self.hud_frame, text="GPS FIX:  NO FIX",
+                                 bg="#1a252f", fg="#e74c3c",
+                                 font=("Courier", 11, "bold"))
+        self.lbl_gps.pack(**pad)
+
+        tk.Frame(self.hud_frame, bg="#34495e", height=1).pack(fill="x", padx=6, pady=4)
+
+        tk.Label(self.hud_frame, text="STATUS MSG",
+                 bg="#1a252f", fg="#7f8c8d",
+                 font=("Arial", 9, "bold")).pack(**pad)
+
+        self.lbl_status = tk.Label(self.hud_frame,
+                                   text="READY: Click to set points",
+                                   bg="#1a252f", fg="#f0e68c",
+                                   font=("Arial", 9, "normal"),
+                                   wraplength=self.HUD_W - 16, justify="left")
+        self.lbl_status.pack(**pad)
+
+        tk.Frame(self.hud_frame, bg="#34495e", height=1).pack(fill="x", padx=6, pady=4)
+
+        tk.Label(self.hud_frame,
+                 text="[1] Start  [2] Clear\n[3] STOP   [4] Origin\n[5] Undo   [6/7] RPM±\nScroll=Zoom  Drag=Pan",
+                 bg="#1a252f", fg="#7f8c8d",
+                 font=("Arial", 8, "normal"),
+                 justify="left").pack(side="bottom", padx=8, pady=8, anchor="w")
+
+        # ── WORLD COORDINATES ─────────────────────────────────────────────────
+        self._apply_world_coords()
+
+        # ── TURTLE OBJECTS ────────────────────────────────────────────────────
+        self.grid_tool = turtle.Turtle(visible=False)
         self.scale_pen = turtle.Turtle()
         self.scale_pen.hideturtle()
         self.scale_pen.penup()
         self.scale_pen.color("white")
 
-        # Navigation Status Pen (Actively Navigating vs Idle)
-        self.state_pen = turtle.Turtle()
-        self.state_pen.hideturtle()
-        self.state_pen.penup()
-        
-        # Keep track of the last drawn state so we don't cause flicker
-        self.last_drawn_state = None
+        self.origin_pen = turtle.Turtle(visible=False)
+        self.origin_pen.speed(0)
+        self.origin_pen.penup()
 
-        # Grid and Rover setup
-        self.grid_tool = turtle.Turtle(visible=False)
         self.draw_grid()
         self.draw_origin()
         self.draw_scale_bar()
-        
-        self.drawer = turtle.Turtle() # Waypoint drawer
+
+        self.drawer = turtle.Turtle()
         self.drawer.pencolor("#e74c3c")
         self.drawer.penup()
 
@@ -57,213 +140,272 @@ class MissionControl:
         self.rover.color("#2ecc71")
         self.rover.penup()
 
-        # 1. Initialize variables FIRST
-        self.last_heartbeat = 0
-        
-        # 2. Setup the Heartbeat Turtle BEFORE calling update_rover
-        self.heartbeat_turtle = turtle.Turtle(visible=False)
-        self.heartbeat_turtle.penup()
-        # Position it in the top right corner
-        self.heartbeat_turtle.goto(self.view_size - 1.5, self.view_size - 1.5)
+        # ── STATE VARIABLES ───────────────────────────────────────────────────
+        self.last_heartbeat      = 0
+        self.last_drawn_state    = None
+        self.target_rpm          = 30.0
+        self.waypoint_queue      = []
+        self.is_navigating       = False
+        self.active_waypoint     = None
+        self.current_rover_x     = 0.0
+        self.current_rover_y     = 0.0
+        self.distance            = 0.0
+        self.target_angle        = 0.0
+        self.last_telemetry_time = 0.0
 
-        # Socket
+        # Drag/pan state
+        self._drag_start_px = (0, 0)
+        self._last_drag_px  = (0, 0)
+        self._is_dragging   = False
+        # Drag threshold in pixels — movement below this is treated as a click
+        self._DRAG_THRESHOLD = 5
+
+        # ── SOCKET ────────────────────────────────────────────────────────────
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(PYTHON_LISTEN_ADDR)
         self.sock.setblocking(False)
 
-        # Keyboard Bindings
+        # ── BINDINGS ──────────────────────────────────────────────────────────
         self.screen.listen()
-        self.screen.onclick(self.handle_click)
-        self.screen.onkey(self.start_mission, "1")
-        self.screen.onkey(self.clear_mission, "2")
-        self.screen.onkey(self.emergency_stop, "3")
-        self.screen.onkey(self.set_origin, "4")
-        self.screen.onkey(self.undo_waypoint, "5")
-        self.screen.onkey(self.increase_rpm, "6")
-        self.screen.onkey(self.decrease_rpm, "7")
-        self.screen.cv.bind("<MouseWheel>", self.zoom)
-        # --- NEW NAVIGATION STATE VARIABLES ---
-        self.target_rpm = 30.0 # Default starting RPM
-        self.waypoint_queue = []     # List to hold (x, y) tuples
-        self.is_navigating = False   # Lock to prevent spamming commands
-        self.active_waypoint = None
-        self.current_rover_x = 0.0   # Absolute X position from Rust
-        self.current_rover_y = 0.0   # Absolute Y position from Rust
-        self.distance = 0.0          # Distance to next waypoint
-        self.target_angle = 0.0      # Bearing to next waypoint
-        # --------------------------------------
+        # Mouse: use raw tkinter bindings so we can separate click from drag.
+        # screen.onclick is NOT used — we handle Button-1 ourselves.
+        self.tk_canvas.bind("<ButtonPress-1>",   self._on_mouse_press)
+        self.tk_canvas.bind("<B1-Motion>",        self._on_mouse_drag)
+        self.tk_canvas.bind("<ButtonRelease-1>",  self._on_mouse_release)
+        self.tk_canvas.bind("<MouseWheel>",       self.zoom)
 
-        self.last_telemetry_time = 0.0
+        self.screen.onkey(self.start_mission,  "1")
+        self.screen.onkey(self.clear_mission,  "2")
+        self.screen.onkey(self.emergency_stop, "3")
+        self.screen.onkey(self.set_origin,     "4")
+        self.screen.onkey(self.undo_waypoint,  "5")
+        self.screen.onkey(self.increase_rpm,   "6")
+        self.screen.onkey(self.decrease_rpm,   "7")
+
         self.update_status("READY: Click to set points")
         self.update_rover()
-        
-        
 
-    def draw_nav_info(self, dist, bearing):
-        self.nav_pen.clear()
-        x_pos = -self.view_size + 0.5 
-        y_pos = self.view_size - 0.8
-        self.nav_pen.goto(x_pos, y_pos)
-        
-        # Added RPM to the display string
-        info_str = f"DIST: {dist:.2f}m\nBRNG: {bearing:.1f}°\nRPM: {self.target_rpm:.1f}"
-        
-        self.nav_pen.write(info_str, align="left", font=("Arial", 12, "bold"))
-    
+    # ── COORDINATE HELPERS ────────────────────────────────────────────────────
+
+    def _apply_world_coords(self):
+        """Push the current pan+zoom state into turtle's world coordinate system."""
+        self.screen.setworldcoordinates(
+            self.pan_x - self.view_size,
+            self.pan_y - self.view_size,
+            self.pan_x + self.view_size,
+            self.pan_y + self.view_size,
+        )
+
+    def _canvas_to_world(self, cx, cy):
+        """Convert a tkinter canvas pixel (cx, cy) to world (meter) coordinates."""
+        cw = self.tk_canvas.winfo_width()
+        ch = self.tk_canvas.winfo_height()
+        wx = (self.pan_x - self.view_size) + cx * (2.0 * self.view_size / cw)
+        wy = (self.pan_y + self.view_size) - cy * (2.0 * self.view_size / ch)
+        return wx, wy
+
+    # ── PAN / CLICK MOUSE HANDLERS ────────────────────────────────────────────
+
+    def _on_mouse_press(self, event):
+        self._drag_start_px = (event.x, event.y)
+        self._last_drag_px  = (event.x, event.y)
+        self._is_dragging   = False
+
+    def _on_mouse_drag(self, event):
+        # Measure total movement from press start
+        total_dx = event.x - self._drag_start_px[0]
+        total_dy = event.y - self._drag_start_px[1]
+        if math.sqrt(total_dx**2 + total_dy**2) > self._DRAG_THRESHOLD:
+            self._is_dragging = True
+
+        if self._is_dragging:
+            # Delta from last reported position (incremental pan)
+            dx_px = event.x - self._last_drag_px[0]
+            dy_px = event.y - self._last_drag_px[1]
+            self._last_drag_px = (event.x, event.y)
+
+            cw = self.tk_canvas.winfo_width()
+            ch = self.tk_canvas.winfo_height()
+            # Dragging right (dx_px > 0) → view centre moves left (pan_x decreases)
+            self.pan_x -= dx_px * (2.0 * self.view_size / cw)
+            # Dragging down (dy_px > 0) → view centre moves up (pan_y increases)
+            self.pan_y += dy_px * (2.0 * self.view_size / ch)
+
+            self._apply_world_coords()
+            self.draw_grid()
+            self.draw_scale_bar()
+            self.screen.update()
+
+    def _on_mouse_release(self, event):
+        if not self._is_dragging:
+            # Short press with no meaningful movement = waypoint click
+            wx, wy = self._canvas_to_world(event.x, event.y)
+            self.handle_click(wx, wy)
+        self._is_dragging = False
+
+    # ── HUD UPDATE HELPERS ────────────────────────────────────────────────────
+
+    def draw_heartbeat(self, active):
+        if active:
+            self.lbl_system.config(text="● SYSTEM ACTIVE", fg="#2ecc71")
+        else:
+            self.lbl_system.config(text="● SYSTEM OFFLINE", fg="#e74c3c")
+
     def draw_nav_state(self):
-        # Only redraw if the state has changed to prevent screen flickering
         if self.last_drawn_state == self.is_navigating:
             return
-            
-        self.state_pen.clear()
-        # Place it at the very top center of the screen
-        self.state_pen.goto(0, self.view_size - 0.2) 
-        
         if self.is_navigating:
-            self.state_pen.color("#12f35d") # Warning Orange
-            self.state_pen.write("STATUS: ACTIVELY NAVIGATING", align="center", font=("Arial", 14, "bold"))
+            self.lbl_nav_state.config(text="STATUS: ACTIVELY NAVIGATING", fg="#12f35d")
         else:
-            self.state_pen.color("#ac7715") # Idle Grey
-            self.state_pen.write("STATUS: IDLE / STANDBY", align="center", font=("Arial", 14, "bold"))
-            
+            self.lbl_nav_state.config(text="STATUS: IDLE / STANDBY", fg="#ac7715")
         self.last_drawn_state = self.is_navigating
 
+    def draw_nav_info(self, dist, bearing):
+        self.distance     = dist
+        self.target_angle = bearing
+        self.lbl_dist.config(text=f"DIST TO TARGET:  {dist:.2f} m")
+        self.lbl_brng.config(text=f"BEARING TO TARGET:  {bearing:.1f}°")
+        self.lbl_rpm.config( text=f"RPM SETPOINT:   {self.target_rpm:.1f}")
+
+    def draw_gps_fix(self, fix_str):
+        """Update the GPS fix quality label with colour coding."""
+        COLOR_MAP = {
+            "RTK_FIX":   ("#2ecc71", "RTK FIX"),      # bright green
+            "RTK_FLOAT": ("#3498db", "RTK FLOAT"),     # blue
+            "DGPS":      ("#f1c40f", "DGPS"),          # yellow
+            "GPS":       ("#f39c12", "GPS (AUTONOMOUS)"),  # orange
+            "NO_FIX":    ("#e74c3c", "NO FIX"),        # red
+        }
+        color, label = COLOR_MAP.get(fix_str, ("#e74c3c", fix_str))
+        self.lbl_gps.config(text=f"GPS FIX:  {label}", fg=color)
+
+    def update_status(self, text):
+        self.lbl_status.config(text=text)
+        self.screen.update()
+
+    # ── SCALE BAR ─────────────────────────────────────────────────────────────
+
     def draw_scale_bar(self):
-        length = self.view_size / 5
-        x = self.view_size - length - 0.5
-        y = -self.view_size + 1.0
+        """Draw a 1-meter scale bar anchored to the bottom-right of the viewport."""
         self.scale_pen.clear()
+        # Always represent exactly 1 meter regardless of zoom
+        length = 1.0
+        # Position in the bottom-right corner of the current viewport
+        x = (self.pan_x + self.view_size) - length - 0.5
+        y = (self.pan_y - self.view_size) + 0.6
         self.scale_pen.goto(x, y)
         self.scale_pen.pendown()
         self.scale_pen.goto(x + length, y)
         self.scale_pen.penup()
         self.scale_pen.goto(x + length / 2, y - 0.2)
-        if length >= 0.1:
-            self.scale_pen.write(f"{length:.1f}m", align="center", font=("Verdana", 8, "normal"))
-        else:
-            self.scale_pen.write(f"{int(length * 100)}cm", align="center", font=("Verdana", 8, "normal"))
+        self.scale_pen.write("1 m", align="center", font=("Verdana", 8, "normal"))
         self.screen.update()
-        
-    # def draw_grid(self):
-    #     self.grid_tool.clear()
-    #     self.grid_tool.pencolor("#34495e")
-    #     for i in range(-self.view_size, self.view_size + 1):
-    #         self.grid_tool.penup(); self.grid_tool.goto(i, -self.view_size); self.grid_tool.pendown(); self.grid_tool.goto(i, self.view_size)
-    #         self.grid_tool.penup(); self.grid_tool.goto(-self.view_size, i); self.grid_tool.pendown(); self.grid_tool.goto(self.view_size, i)
-    #     self.screen.update()
+
+    # ── GRID ──────────────────────────────────────────────────────────────────
+
     def draw_grid(self):
         self.grid_tool.clear()
-        current = -self.view_size
-        while current <= self.view_size:
-            # --- 1. Draw the Grid Lines ---
-            # Highlight the origin axes (X=0 and Y=0)
-            if current == 0:
-                self.grid_tool.pencolor("#7f8c8d") # Lighter grey for center axis
-                self.grid_tool.pensize(2)
+
+        # Viewport bounds in world (meter) space
+        left   = self.pan_x - self.view_size
+        right  = self.pan_x + self.view_size
+        bottom = self.pan_y - self.view_size
+        top    = self.pan_y + self.view_size
+
+        # Integer meter grid lines visible in this viewport
+        first_v = int(math.ceil(left))
+        last_v  = int(math.floor(right))
+        first_h = int(math.ceil(bottom))
+        last_h  = int(math.floor(top))
+
+        # ── Vertical lines ────────────────────────────────────────────────────
+        for x in range(first_v, last_v + 1):
+            if x == 0:
+                self.grid_tool.pencolor("black")
+                self.grid_tool.pensize(3)
             else:
-                self.grid_tool.pencolor("#34495e") # Dark grey for regular grid
+                self.grid_tool.pencolor("#34495e")
                 self.grid_tool.pensize(1)
-
-            # Vertical lines
             self.grid_tool.penup()
-            self.grid_tool.goto(current, -self.view_size)
+            self.grid_tool.goto(x, bottom)
             self.grid_tool.pendown()
-            self.grid_tool.goto(current, self.view_size)
-            
-            # Horizontal lines
+            self.grid_tool.goto(x, top)
+
+        # ── Horizontal lines ──────────────────────────────────────────────────
+        for y in range(first_h, last_h + 1):
+            if y == 0:
+                self.grid_tool.pencolor("black")
+                self.grid_tool.pensize(3)
+            else:
+                self.grid_tool.pencolor("#34495e")
+                self.grid_tool.pensize(1)
             self.grid_tool.penup()
-            self.grid_tool.goto(-self.view_size, current)
+            self.grid_tool.goto(left, y)
             self.grid_tool.pendown()
-            self.grid_tool.goto(self.view_size, current)
+            self.grid_tool.goto(right, y)
 
-            # --- 2. Draw the Unit Labels ---
-            self.grid_tool.pencolor("#bdc3c7") # Light whitish-grey for text
-            self.grid_tool.penup()
-            
-            # X-axis labels (drawn along the bottom edge)
-            if current != 0 and current != -self.view_size: 
-                self.grid_tool.goto(current, -self.view_size + 0.2)
-                self.grid_tool.write(f"{int(current)}", align="center", font=("Verdana", 8, "normal"))
-            
-            # Y-axis labels (drawn along the left edge)
-            if current != 0 and current != -self.view_size:
-                self.grid_tool.goto(-self.view_size + 0.2, current - 0.2)
-                self.grid_tool.write(f"{int(current)}", align="left", font=("Verdana", 8, "normal"))
+        # ── Coordinate labels ─────────────────────────────────────────────────
+        self.grid_tool.pencolor("#bdc3c7")
+        self.grid_tool.pensize(1)
+        self.grid_tool.penup()
 
-            # Label the origin (0,0) exactly in the center
-            if current == 0:
-                self.grid_tool.goto(0.2, 0.2)
-                self.grid_tool.write("0", align="left", font=("Verdana", 8, "bold"))
+        for x in range(first_v, last_v + 1):
+            if x == 0:
+                continue  # draw "0" once below
+            self.grid_tool.goto(x, bottom + 0.2)
+            self.grid_tool.write(f"{x}", align="center", font=("Verdana", 8, "normal"))
 
-            current += 1 # Move 1 unit (1 meter)
+        for y in range(first_h, last_h + 1):
+            if y == 0:
+                continue
+            self.grid_tool.goto(left + 0.2, y - 0.2)
+            self.grid_tool.write(f"{y}", align="left", font=("Verdana", 8, "normal"))
 
-        # --- 3. Draw Cardinal Direction Labels ---
-        self.grid_tool.pencolor("#11100F") # Orange color for directions
-        # North (+Y)
-        self.grid_tool.goto(0, self.view_size - 0.5)
-        self.grid_tool.write("NORTH", align="center", font=("Verdana", 10, "bold"))
-        # South (-Y)
-        self.grid_tool.goto(0, -self.view_size + 0.1)
-        self.grid_tool.write("SOUTH", align="center", font=("Verdana", 10, "bold"))
-        # East (+X)
-        self.grid_tool.goto(self.view_size - 0.1, 0.1)
-        self.grid_tool.write("EAST", align="right", font=("Verdana", 10, "bold"))
-        # West (-X)
-        self.grid_tool.goto(-self.view_size + 0.1, 0.1)
-        self.grid_tool.write("WEST", align="left", font=("Verdana", 10, "bold"))
+        # "0" label only when the origin is in view
+        if first_v <= 0 <= last_v and first_h <= 0 <= last_h:
+            self.grid_tool.goto(0.15, 0.15)
+            self.grid_tool.write("0", align="left", font=("Verdana", 8, "bold"))
+
+        # ── Cardinal labels (centred on current viewport edges) ───────────────
+        self.grid_tool.pencolor("#11100F")
+        cx, cy = self.pan_x, self.pan_y   # screen centre in world coords
+        self.grid_tool.goto(cx, top   - 0.5);  self.grid_tool.write("NORTH", align="center", font=("Verdana", 10, "bold"))
+        self.grid_tool.goto(cx, bottom + 0.1);  self.grid_tool.write("SOUTH", align="center", font=("Verdana", 10, "bold"))
+        self.grid_tool.goto(right - 0.1, cy + 0.1); self.grid_tool.write("EAST",  align="right",  font=("Verdana", 10, "bold"))
+        self.grid_tool.goto(left  + 0.1, cy + 0.1); self.grid_tool.write("WEST",  align="left",   font=("Verdana", 10, "bold"))
 
         self.screen.update()
+
+    # ── ORIGIN MARKER ─────────────────────────────────────────────────────────
 
     def draw_origin(self):
-        # Create a dedicated turtle just for the origin marker
-        origin_pen = turtle.Turtle(visible=False)
-        origin_pen.speed(0)
-        origin_pen.penup()
-        
-        # Go to (0,0) and stamp a grey dot
-        origin_pen.goto(0, 0)
-        origin_pen.dot(12, "grey")
-        
-        # Add a small text label underneath it
-        origin_pen.sety(-0.3) # Shift down slightly based on your scale
-        origin_pen.color("grey")
-        origin_pen.write("Origin (Start)", align="center", font=("Arial", 10, "bold"))
+        """Draw the fixed origin marker at world (0, 0) — redrawn on demand."""
+        self.origin_pen.clear()
+        self.origin_pen.goto(0, 0)
+        self.origin_pen.dot(12, "grey")
+        self.origin_pen.goto(0, -0.3)
+        self.origin_pen.color("grey")
+        self.origin_pen.write("Origin (Start)", align="center", font=("Arial", 10, "bold"))
 
-    def update_status(self, text):
-        self.ui_pen.clear()
-        self.ui_pen.goto(-self.view_size + 1, self.view_size - 1.5)
-        self.ui_pen.write(f"STATUS: {text}", font=("Verdana", 14, "bold"))
-        self.ui_pen.goto(-self.view_size + 1, self.view_size - 2.5)
-        self.ui_pen.write("[1] START | [2] CLEAR | [3] STOP | [4] SET ORIGIN | [5] UNDO", font=("Verdana", 10, "normal"))
-        self.screen.update()
+    # ── WAYPOINT PATH ─────────────────────────────────────────────────────────
 
     def draw_path(self):
         self.drawer.clear()
         self.drawer.penup()
-        
         curr_x, curr_y = self.current_rover_x, self.current_rover_y
-        
-        # 1. DRAW THE ACTIVE LEG
+
         if self.active_waypoint:
             self.drawer.goto(curr_x, curr_y)
-            
-            # Switch color based on navigation state
-            if self.is_navigating:
-                self.drawer.color("#2ecc71") # Green
-            else:
-                self.drawer.color("#f39c12") # Orange (Paused)
-                
+            self.drawer.color("#2ecc71" if self.is_navigating else "#f39c12")
             self.drawer.pensize(3)
             self.drawer.pendown()
             self.drawer.goto(self.active_waypoint[0], self.active_waypoint[1])
             self.drawer.penup()
-            self.drawer.dot(10) 
-            
-            start_x, start_y = self.active_waypoint[0], self.active_waypoint[1]
+            self.drawer.dot(10)
+            start_x, start_y = self.active_waypoint
         else:
             start_x, start_y = curr_x, curr_y
 
-        # 2. DRAW THE QUEUED LEGS (RED)
         self.drawer.color("#e74c3c")
         self.drawer.pensize(1)
         for wp in self.waypoint_queue:
@@ -272,250 +414,184 @@ class MissionControl:
             self.drawer.goto(wp[0], wp[1])
             self.drawer.penup()
             self.drawer.dot(8, "#e74c3c")
-            start_x, start_y = wp[0], wp[1]
+            start_x, start_y = wp
 
-    def handle_click(self, x, y):
-        # If the click is too close to the center, ignore it
-        dist_from_center = math.sqrt(x**2 + y**2)
-        if dist_from_center < 1.0: 
-            print("Point too close to origin! Click further away.")
-            return
+    # ── ZOOM ──────────────────────────────────────────────────────────────────
 
-        # 1. Add to Queue
-        self.waypoint_queue.append((x, y))
-        
-        # 2. Redraw the path
-        self.draw_path()
-        
-        print(f"Queued WP: ({x:.2f}, {y:.2f}) | Queue size: {len(self.waypoint_queue)}")
+    def zoom(self, event):
+        factor = 1.1 if event.delta > 0 else 0.9
+        self.view_size *= factor
+        # Increased max to 50 to allow zooming out far after panning
+        self.view_size = max(0.5, min(50.0, self.view_size))
+        self._apply_world_coords()
+        self.draw_grid()
+        self.draw_scale_bar()
         self.screen.update()
 
-        # --- UPDATE UI TEXT IMMEDIATELY ON CLICK ---
+    # ── MISSION CONTROLS ──────────────────────────────────────────────────────
+
+    def handle_click(self, x, y):
+        if math.sqrt(x**2 + y**2) < 1.0:
+            print("Point too close to origin! Click further away.")
+            return
+        self.waypoint_queue.append((x, y))
+        self.draw_path()
+        print(f"Queued WP: ({x:.2f}, {y:.2f}) | Queue size: {len(self.waypoint_queue)}")
+        self.screen.update()
         if not self.is_navigating and len(self.waypoint_queue) == 1:
             dx = x - self.current_rover_x
             dy = y - self.current_rover_y
-            
             dist = math.sqrt(dx**2 + dy**2)
             target_angle = math.degrees(math.atan2(dx, dy))
             if target_angle < 0:
                 target_angle += 360
-                
             self.draw_nav_info(dist, target_angle)
 
     def start_mission(self):
         if self.is_navigating:
             print("Already navigating!")
             return
-
-        # Case A: Resume existing waypoint
         if self.active_waypoint:
             print("Resuming mission...")
             self.is_navigating = True
             self.send_nav_command(self.active_waypoint[0], self.active_waypoint[1])
-        
-        # Case B: Grab from queue
         elif self.waypoint_queue:
             print("Starting mission from queue...")
             self.is_navigating = True
             self.active_waypoint = self.waypoint_queue.pop(0)
             self.send_nav_command(self.active_waypoint[0], self.active_waypoint[1])
-        
-
-        self.draw_path() # Force refresh to turn line Green
-
-    def emergency_stop(self):
-        self.sock.sendto(b"STOP", RUST_SEND_ADDR)
-        self.is_navigating = False 
-        self.draw_path() # Force refresh to turn line Orange
-        self.update_status("EMERGENCY STOP SENT")
-
-    def clear_mission(self):
-        # Rust doesn't have a formal CLEAR yet, so we just clear the UI
-        self.drawer.clear()
-        self.drawer.penup()
-        self.waypoint_queue.clear() # Empty queue
-        self.update_status("CLEARED: Ready for new points")
-        self.distance = 0.0
-        self.target_angle = 0.0
-        self.active_waypoint = None
-        self.is_navigating = False  
         self.draw_path()
-        self.screen.update()
-        print("Mission cleared!, Navigation reset.")
-        
 
     def emergency_stop(self):
-        # We can send a command that triggers (1500, 1500) in Rust
         self.sock.sendto(b"STOP", RUST_SEND_ADDR)
-        
-        self.is_navigating = False 
-        
-        self.draw_path() 
+        self.is_navigating = False
+        self.draw_path()
         self.update_status("EMERGENCY STOP SENT")
         print("Sent: STOP Command to Rover!")
 
-    # Add this new method to the class:
+    def clear_mission(self):
+        self.drawer.clear()
+        self.drawer.penup()
+        self.waypoint_queue.clear()
+        self.update_status("CLEARED: Ready for new points")
+        self.distance        = 0.0
+        self.target_angle    = 0.0
+        self.active_waypoint = None
+        self.is_navigating   = False
+        self.lbl_dist.config(text="DIST TO TARGET:  —")
+        self.lbl_brng.config(text="BEARING TO TARGET:  —")
+        self.lbl_rpm.config( text=f"RPM SETPOINT:   {self.target_rpm:.1f}")
+        self.draw_path()
+        self.screen.update()
+        print("Mission cleared! Navigation reset.")
+
     def set_origin(self):
         self.sock.sendto(b"SET_ORIGIN", RUST_SEND_ADDR)
         self.update_status("ORIGIN SET: Rover at (0,0)")
         print("Sent: SET_ORIGIN")
-        
+
     def undo_waypoint(self):
         if self.waypoint_queue:
             self.waypoint_queue.pop()
-            
-            # Redraw the path instantly
             self.draw_path()
+            if len(self.waypoint_queue) == 0 and not self.is_navigating:
+                self.distance     = 0.0
+                self.target_angle = 0.0
+                self.lbl_dist.config(text="DIST TO TARGET:  —")
+                self.lbl_brng.config(text="BEARING TO TARGET:  —")
             self.screen.update()
-            
             print(f"Undid last waypoint. Queue size: {len(self.waypoint_queue)}")
         else:
             print("No waypoints to undo.")
-            
-    def zoom(self, event):
-        delta = event.delta
-        factor = 1.1 if delta > 0 else 0.9
-        self.view_size *= factor
-        self.view_size = max(0.5, min(20.0, self.view_size))
-        self.screen.setworldcoordinates(-self.view_size, -self.view_size, self.view_size, self.view_size)
-        self.draw_grid()
-        self.draw_scale_bar()
-        self.screen.update()
-        
-    # Add this new method:
-    def draw_heartbeat(self, active):
-        self.ui_pen.clear()
-        # Position the pen in the top left or top right
-        self.ui_pen.goto(-self.view_size + 0.5, self.view_size - 1)
-        
-        if active:
-            self.ui_pen.color("#2ecc71") # Emerald Green
-            self.ui_pen.write("● SYSTEM ACTIVE", font=("Arial", 12, "bold"))
-        else:
-            self.ui_pen.color("#e74c3c") # Alizarin Red
-            self.ui_pen.write("● SYSTEM OFFLINE", font=("Arial", 12, "bold"))
 
     def increase_rpm(self):
         self.target_rpm += 5.0
         self.send_rpm_to_rust()
 
     def decrease_rpm(self):
-        self.target_rpm = max(0, self.target_rpm - 5.0) # Prevent negative RPM
+        self.target_rpm = max(0, self.target_rpm - 5.0)
         self.send_rpm_to_rust()
 
     def send_rpm_to_rust(self):
-        # Use the existing socket to send the new message type
         rpm_msg = f"RPM,{self.target_rpm:.1f}"
         self.sock.sendto(rpm_msg.encode(), RUST_SEND_ADDR)
-        
-        # Refresh the UI text immediately
-        # Using a dummy distance/bearing if not navigating
         self.draw_nav_info(self.distance, self.target_angle)
         print(f"Sent RPM Update: {self.target_rpm}")
 
-    def draw_rpm_ui(self):
-   
-        self.ui_pen.color("white")
-        self.ui_pen.goto(self.view_size - 1.5, self.view_size - 0.8) # Positioned below status
-        # Clear a small area first if needed, or just overwrite since UI pen clears often
-        self.ui_pen.write(f"Target RPM: {self.target_rpm:.1f}", font=("Arial", 11, "normal"))
-
     def send_nav_command(self, tx, ty):
-        """Calculates distance/angle and sends the NAV packet to Rust."""
-        # Calculate distance and angle relative to current position
         dx = tx - self.current_rover_x
         dy = ty - self.current_rover_y
-        distance = math.sqrt(dx**2 + dy**2)
-        
-        # Calculate target angle for Rust
+        distance     = math.sqrt(dx**2 + dy**2)
         target_angle = math.degrees(math.atan2(dy, dx))
-        
-        # Send the Navigation instructions to Rust
         nav_msg = f"NAV,{distance:.3f},{target_angle:.3f}"
         self.sock.sendto(nav_msg.encode(), RUST_SEND_ADDR)
-        
-        # Update UI text
         self.draw_nav_info(distance, target_angle)
         self.update_status(f"NAVIGATING to ({tx:.1f}, {ty:.1f})")
         print(f"Sent NAV: {distance:.2f}m at {target_angle:.1f}°")
 
-    ### NEW METHOD TO SEND THE NEXT WAYPOINT IN THE QUEUE TO RUST
     def send_next_waypoint(self):
         if len(self.waypoint_queue) == 0:
             self.active_waypoint = None
-            self.is_navigating = False
+            self.is_navigating   = False
             self.draw_path()
             self.update_status("IDLE: All waypoints reached")
             return
-        
         tx, ty = self.waypoint_queue.pop(0)
         self.active_waypoint = (tx, ty)
-        self.is_navigating = True
+        self.is_navigating   = True
         self.send_nav_command(tx, ty)
         self.draw_path()
 
+    # ── MAIN TELEMETRY LOOP ───────────────────────────────────────────────────
 
     def update_rover(self):
         try:
             data, addr = self.sock.recvfrom(1024)
             self.draw_heartbeat(True)
-            
             msg = data.decode().split(',')
-            
-            # --- 1. UPDATE LIVE POSITION ---
+
             if msg[0] == "TELEM" and len(msg) >= 4:
                 self.current_rover_x = float(msg[1])
                 self.current_rover_y = float(msg[2])
-                rover_yaw = float(msg[3])
-                
-                # CONVERT RUST HEADING BACK TO PYTHON HEADING FOR UI
-                turtle_angle = (90 - rover_yaw) % 360
-                
-                # Move Turtle
+                rover_yaw            = float(msg[3])
+                turtle_angle         = (90 - rover_yaw) % 360
+
                 self.rover.goto(self.current_rover_x, self.current_rover_y)
                 self.rover.setheading(turtle_angle)
-
-                # Redraw path so the green line anchors to the moving rover
                 self.draw_path()
-                
-                # --- NEW: CALCULATE REMAINING DISTANCE ---
-                # Figure out what point we should be measuring to
-                target_wp = None
-                
-                if self.is_navigating and self.active_waypoint:
-                    target_wp = self.active_waypoint          # Driving: Measure to active point
-                elif not self.is_navigating and len(self.waypoint_queue) > 0:
-                    target_wp = self.waypoint_queue[0]        # Idle: Measure to the first queued point
-                    
-                # If we have a target, calculate the distance and show it
-                # Calculate distance to the active waypoint for the UI text
+
+                # GPS fix quality (msg[4] added by updated Rust firmware)
+                if len(msg) >= 5:
+                    self.draw_gps_fix(msg[4].strip())
+
                 if self.active_waypoint:
                     dx = self.active_waypoint[0] - self.current_rover_x
                     dy = self.active_waypoint[1] - self.current_rover_y
                     remaining_dist = math.sqrt(dx**2 + dy**2)
                     self.draw_nav_info(remaining_dist, rover_yaw)
                 else:
-                    # If there are no waypoints at all, clear the text
-                    self.nav_pen.clear()
-            
-            # --- 2. HANDLE ARRIVAL NOTIFICATION ---
+                    self.lbl_dist.config(text="DIST TO TARGET:  —")
+                    self.lbl_brng.config(text="BEARING TO TARGET:  —")
+
             elif msg[0] == "ARRIVED":
                 print("\n[SUCCESS] Rover reached waypoint!")
-                self.is_navigating = False  # Unlock the system
-                self.send_next_waypoint()   # Instantly grab the next WP in the queue!
-            self.last_telemetry_time = time.time()  # Update heartbeat timestamp on any message received
+                self.is_navigating = False
+                self.send_next_waypoint()
+
+            self.last_telemetry_time = time.time()
 
         except BlockingIOError:
             pass
         except Exception as e:
             print(f"Socket Error: {e}")
+
         if time.time() - self.last_telemetry_time > 2.0:
             self.draw_heartbeat(False)
+
         self.draw_nav_state()
-        
         self.screen.update()
         self.screen.ontimer(self.update_rover, 50)
-    
+
 
 if __name__ == "__main__":
     gui = MissionControl()
