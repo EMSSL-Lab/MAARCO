@@ -130,6 +130,7 @@ class MissionControl:
         self.draw_grid()
         self.draw_origin()
         self.draw_scale_bar()
+        
 
         self.drawer = turtle.Turtle()
         self.drawer.pencolor("#e74c3c")
@@ -159,6 +160,7 @@ class MissionControl:
         self._is_dragging   = False
         # Drag threshold in pixels — movement below this is treated as a click
         self._DRAG_THRESHOLD = 5
+        self.last_pan_time = time.time() # time delay variable to prevent recursion crash due to rapid mouse panning
 
         # ── SOCKET ────────────────────────────────────────────────────────────
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -231,10 +233,16 @@ class MissionControl:
             # Dragging down (dy_px > 0) → view centre moves up (pan_y increases)
             self.pan_y += dy_px * (2.0 * self.view_size / ch)
 
-            self._apply_world_coords()
-            self.draw_grid()
-            self.draw_scale_bar()
-            self.screen.update()
+            # Throttle graphics rendering to prevent recursion crash due to rapid mouse panning\
+            current_time = time.time()
+            if current_time - self.last_pan_time > 0.03:
+                self.last_pan_time = current_time
+                self._apply_world_coords()
+                self.draw_grid()
+                self.draw_scale_bar()
+                self.screen.update()
+                self.last_pan_time = current_time # Reset the timer
+
 
     def _on_mouse_release(self, event):
         if not self._is_dragging:
@@ -290,15 +298,24 @@ class MissionControl:
         self.scale_pen.clear()
         # Always represent exactly 1 meter regardless of zoom
         length = 1.0
+        # Calculate viewport-adaptive margins so the position doesn't drift when zooming
+        margin_x = 0.12 * self.view_size  # Distance from right edge
+        margin_y = 0.08 * self.view_size  # Distance from bottom edge
+
         # Position in the bottom-right corner of the current viewport
-        x = (self.pan_x + self.view_size) - length - 0.5
-        y = (self.pan_y - self.view_size) + 0.6
+        x = (self.pan_x + self.view_size) - length - margin_x
+        y = (self.pan_y - self.view_size) + margin_y
+        
         self.scale_pen.goto(x, y)
         self.scale_pen.pendown()
         self.scale_pen.goto(x + length, y)
         self.scale_pen.penup()
-        self.scale_pen.goto(x + length / 2, y - 0.2)
+        
+        # Offset the text proportionally as well so it doesn't overlap the line
+        text_offset = 0.04 * self.view_size
+        self.scale_pen.goto(x + length / 2, y - text_offset)
         self.scale_pen.write("1 m", align="center", font=("Verdana", 8, "normal"))
+        
         self.screen.update()
 
     # ── GRID ──────────────────────────────────────────────────────────────────
@@ -322,7 +339,7 @@ class MissionControl:
         for x in range(first_v, last_v + 1):
             if x == 0:
                 self.grid_tool.pencolor("black")
-                self.grid_tool.pensize(3)
+                self.grid_tool.pensize(2)
             else:
                 self.grid_tool.pencolor("#34495e")
                 self.grid_tool.pensize(1)
@@ -335,7 +352,7 @@ class MissionControl:
         for y in range(first_h, last_h + 1):
             if y == 0:
                 self.grid_tool.pencolor("black")
-                self.grid_tool.pensize(3)
+                self.grid_tool.pensize(2)
             else:
                 self.grid_tool.pencolor("#34495e")
                 self.grid_tool.pensize(1)
@@ -368,11 +385,29 @@ class MissionControl:
 
         # ── Cardinal labels (centred on current viewport edges) ───────────────
         self.grid_tool.pencolor("#11100F")
-        cx, cy = self.pan_x, self.pan_y   # screen centre in world coords
-        self.grid_tool.goto(cx, top   - 0.5);  self.grid_tool.write("NORTH", align="center", font=("Verdana", 10, "bold"))
-        self.grid_tool.goto(cx, bottom + 0.1);  self.grid_tool.write("SOUTH", align="center", font=("Verdana", 10, "bold"))
-        self.grid_tool.goto(right - 0.1, cy + 0.1); self.grid_tool.write("EAST",  align="right",  font=("Verdana", 10, "bold"))
-        self.grid_tool.goto(left  + 0.1, cy + 0.1); self.grid_tool.write("WEST",  align="left",   font=("Verdana", 10, "bold"))
+        # Calculate viewport-adaptive margins so text doesn't scale weirdly when zooming
+        margin_y = 0.08 * self.view_size
+        margin_x = 0.04 * self.view_size
+
+        # NORTH (Locked to Top Center of screen)
+        self.grid_tool.penup()
+        self.grid_tool.goto(self.pan_x, self.pan_y + self.view_size - margin_y)
+        self.grid_tool.write("NORTH", align="center", font=("Verdana", 10, "bold"))
+
+        # SOUTH (Locked to Bottom Center of screen)
+        self.grid_tool.penup()
+        self.grid_tool.goto(self.pan_x, self.pan_y - self.view_size + (margin_y / 2))
+        self.grid_tool.write("SOUTH", align="center", font=("Verdana", 10, "bold"))
+
+        # EAST (Locked to Right Center of screen)
+        self.grid_tool.penup()
+        self.grid_tool.goto(self.pan_x + self.view_size - margin_x, self.pan_y)
+        self.grid_tool.write("EAST", align="right", font=("Verdana", 10, "bold"))
+
+        # WEST (Locked to Left Center of screen)
+        self.grid_tool.penup()
+        self.grid_tool.goto(self.pan_x - self.view_size + margin_x, self.pan_y)
+        self.grid_tool.write("WEST", align="left", font=("Verdana", 10, "bold"))
 
         self.screen.update()
 
@@ -584,6 +619,13 @@ class MissionControl:
             pass
         except Exception as e:
             print(f"Socket Error: {e}")
+            
+        try: 
+            # send a heatbeat 20 times a second to tell Rust connection is valid
+            self.sock.sendto(b"HEARTBEAT", RUST_SEND_ADDR)
+        except Exception as e:
+            pass # Ignore temporary network sending glitches 
+        
 
         if time.time() - self.last_telemetry_time > 2.0:
             self.draw_heartbeat(False)

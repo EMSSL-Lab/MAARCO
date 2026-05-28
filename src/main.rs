@@ -19,6 +19,7 @@ use rpm_control::PDController as RpmController;
 use distance_tracker::DistanceTracker;
 use std::net::UdpSocket; 
 use std::io::stdin;
+use std::time::{Instant, Duration};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -181,6 +182,9 @@ fn main() -> std::io::Result<()> {
     socket.set_nonblocking(true).expect("Couldn't set non-blocking");
     let mut udp_buf = [0u8; 1024];
 
+    // FAILSAFE Timer for connection distruption between UI and Raspberry Pi
+    let mut last_gcs_time = Instant::now();
+    let failsafe_timeout = Duration::from_secs(2);
     // Initialize gps variables
     let mut parser = gps::parser::build_parser();
     let mut gga_fix_quality: Option<String> = None;
@@ -207,7 +211,8 @@ fn main() -> std::io::Result<()> {
             Ok((amt, _src)) => {
                 let msg = String::from_utf8_lossy(&udp_buf[..amt]);
                 let parts: Vec<&str> = msg.split(',').collect();
-                
+                last_gcs_time = Instant::now(); // Reset failsafe timer on any valid message
+
                 if parts[0] == "NAV" && parts.len() == 3 {
                     if let (Ok(d), Ok(y)) = (parts[1].parse::<f64>(), parts[2].parse::<f64>()) {
                         target_dist = d;
@@ -240,6 +245,15 @@ fn main() -> std::io::Result<()> {
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {} 
             Err(e) => eprintln!("UDP Error: {}", e),
+        }
+
+        // Failsafe check
+        if is_active_leg && last_gcs_time.elapsed() > failsafe_timeout {
+            println!(" GCS connection lost | Motors set to neutral");
+            is_active_leg = false; // cancels current waypoint
+
+            let _ = motor::update_pwm_l(&mut motor_pin_l, 1500);
+            let _ = motor::update_pwm_r(&mut motor_pin_r, 1500);    
         }
 
 
