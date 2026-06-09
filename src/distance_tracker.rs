@@ -208,10 +208,13 @@ pub fn reset_for_new_target(&mut self) {
         self.velocity_ms = (self.velocity_ms + accel_final * dt).max(0.0); // Don't allow negative velocity
         
         // --- NEW 10Hz Smooth X/Y Integration ---
-        let yaw_rad = current_yaw_deg.to_radians();
-        self.x += delta_kin * yaw_rad.sin(); // East-West
-        self.y += delta_kin * yaw_rad.cos(); // North-South
-
+        // Guard against dummy/zeroed IMU data to prevent drift
+        if current_yaw_deg != 0.0 || accel_final != 0.0 {
+            let yaw_rad = current_yaw_deg.to_radians();
+            self.x += delta_kin * yaw_rad.sin();  // East-West
+            self.y += delta_kin * yaw_rad.cos(); // North-South
+        }
+   
         DistanceOutput {
             arrived: self.distance_traveled_m >= target_dist_m - ARRIVAL_THRESHOLD_M,
             dist_traveled_m: self.distance_traveled_m,

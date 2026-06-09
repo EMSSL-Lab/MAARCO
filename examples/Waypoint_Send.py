@@ -3,6 +3,9 @@ import socket
 import math
 import time
 import tkinter as tk
+import csv
+import os
+from datetime import datetime
 
 # UPDATE THESE TO YOUR ACTUAL IPs
 RUST_SEND_ADDR = ("172.20.10.4", 5007)
@@ -48,7 +51,7 @@ class MissionControl:
 
         pad = dict(padx=8, pady=3, anchor="w")
 
-        tk.Label(self.hud_frame, text="══ ROVER HUD ══",
+        tk.Label(self.hud_frame, text="══ MAARCO HUD ══",
                  bg="#1a252f", fg="#ecf0f1",
                  font=("Arial", 11, "bold")).pack(pady=(10, 4))
 
@@ -92,6 +95,10 @@ class MissionControl:
                                  font=("Courier", 11, "bold"))
         self.lbl_gps.pack(**pad)
 
+        # Rover (x,y) coordinates 
+        self.lbl_coords = tk.Label(self.hud_frame, text="Position: X: 0.00, Y: 0.00", font=("Courier", 10, "bold"), fg="#f4f8f6", bg="#1a252f")
+        self.lbl_coords.pack(anchor="w",padx=15,pady=4)
+
         tk.Frame(self.hud_frame, bg="#34495e", height=1).pack(fill="x", padx=6, pady=4)
 
         tk.Label(self.hud_frame, text="STATUS MSG",
@@ -106,6 +113,41 @@ class MissionControl:
         self.lbl_status.pack(**pad)
 
         tk.Frame(self.hud_frame, bg="#34495e", height=1).pack(fill="x", padx=6, pady=4)
+
+        tk.Frame(self.hud_frame, bg="#34495e", height=1).pack(fill="x", padx=6, pady=4)
+
+        tk.Label(self.hud_frame, text="CSV LOGGING",
+                 bg="#1a252f", fg="#7f8c8d",
+                 font=("Arial", 9, "bold")).pack(padx=8, pady=(2, 2), anchor="w")
+
+        self.lbl_logging = tk.Label(self.hud_frame, text="● LOGGING: OFF",
+                                    bg="#1a252f", fg="#e74c3c",
+                                    font=("Arial", 10, "bold"))
+        self.lbl_logging.pack(padx=8, pady=(0, 4), anchor="w")
+
+        btn_frame = tk.Frame(self.hud_frame, bg="#1a252f")
+        btn_frame.pack(padx=8, pady=(0, 6), anchor="w")
+
+        self.btn_start_log = tk.Button(
+            btn_frame, text="▶ Start Log",
+            bg="#1a6b2e", fg="white",
+            font=("Arial", 9, "bold"),
+            activebackground="#27ae60", activeforeground="white",
+            relief="raised", bd=2, padx=6, pady=3,
+            command=self.start_logging
+        )
+        self.btn_start_log.pack(side="left", padx=(0, 6))
+
+        self.btn_stop_log = tk.Button(
+            btn_frame, text="■ Stop Log",
+            bg="#7f1010", fg="white",
+            font=("Arial", 9, "bold"),
+            activebackground="#c0392b", activeforeground="white",
+            relief="raised", bd=2, padx=6, pady=3,
+            command=self.stop_logging,
+            state="disabled"
+        )
+        self.btn_stop_log.pack(side="left")
 
         tk.Label(self.hud_frame,
                  text="[1] Start  [2] Clear\n[3] STOP   [4] Origin\n[5] Undo   [6/7] RPM±\nScroll=Zoom  Drag=Pan",
@@ -153,6 +195,11 @@ class MissionControl:
         self.distance            = 0.0
         self.target_angle        = 0.0
         self.last_telemetry_time = 0.0
+
+        # Logging state
+        self.is_logging      = False
+        self.log_file        = None
+        self.log_writer      = None
 
         # Drag/pan state
         self._drag_start_px = (0, 0)
@@ -577,6 +624,57 @@ class MissionControl:
         self.send_nav_command(tx, ty)
         self.draw_path()
 
+    # ── CSV LOGGING ───────────────────────────────────────────────────────────
+
+    def start_logging(self):
+        if self.is_logging:
+            return
+        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+        os.makedirs(desktop, exist_ok=True)
+        timestamp_str = datetime.now().strftime("%m_%d_%Y")
+        log_path = os.path.join(desktop, f"gui_log_{timestamp_str}.csv")
+        try:
+            self.log_file = open(log_path, "w", newline="")
+            self.log_writer = csv.writer(self.log_file)
+            self.log_writer.writerow(["timestamp", "x", "y"])
+            self.log_file.flush()
+            self.is_logging = True
+            self.lbl_logging.config(text="● LOGGING: ON", fg="#2ecc71")
+            self.btn_start_log.config(state="disabled")
+            self.btn_stop_log.config(state="normal")
+            self.update_status(f"LOGGING to {os.path.basename(log_path)}")
+            print(f"[LOG] Started logging to: {log_path}")
+        except Exception as e:
+            self.update_status(f"LOG ERROR: {e}")
+            print(f"[LOG] Failed to open log file: {e}")
+
+    def stop_logging(self):
+        if not self.is_logging:
+            return
+        self.is_logging = False
+        try:
+            if self.log_file:
+                self.log_file.close()
+                self.log_file = None
+                self.log_writer = None
+        except Exception as e:
+            print(f"[LOG] Error closing log file: {e}")
+        self.lbl_logging.config(text="● LOGGING: OFF", fg="#e74c3c")
+        self.btn_start_log.config(state="normal")
+        self.btn_stop_log.config(state="disabled")
+        self.update_status("LOGGING STOPPED")
+        print("[LOG] Logging stopped.")
+
+    def _write_log_row(self, x, y):
+        if not self.is_logging or self.log_writer is None:
+            return
+        try:
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            self.log_writer.writerow([ts, f"{x:.4f}", f"{y:.4f}"])
+            self.log_file.flush()
+        except Exception as e:
+            print(f"[LOG] Write error: {e}")
+
     # ── MAIN TELEMETRY LOOP ───────────────────────────────────────────────────
 
     def update_rover(self):
@@ -589,7 +687,10 @@ class MissionControl:
                 self.current_rover_x = float(msg[1])
                 self.current_rover_y = float(msg[2])
                 rover_yaw            = float(msg[3])
+                self.lbl_coords.config(text=f"Position: X: {self.current_rover_x:.2f}, Y: {self.current_rover_y:.2f}")
                 turtle_angle         = (90 - rover_yaw) % 360
+
+                self._write_log_row(self.current_rover_x, self.current_rover_y)
 
                 self.rover.goto(self.current_rover_x, self.current_rover_y)
                 self.rover.setheading(turtle_angle)

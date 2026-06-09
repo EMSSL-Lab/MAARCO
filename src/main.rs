@@ -293,6 +293,34 @@ fn main() -> std::io::Result<()> {
                         if let (Some(lat), Some(lon)) = (parser.latitude, parser.longitude) {
                             let speed_kmh = parser.speed_over_ground.unwrap_or(0.0) as f64;
                             dist_tracker.update_gps(lat, lon, speed_kmh);
+
+                            // ====== NEW: PURE GPS FALLBACK TELEMETRY & ARRIVAL ======
+                            if !arduino_connected {
+                                let fix_label = match fix_quality {
+                                    1 => "GPS",
+                                    2 => "DGPS",
+                                    4 => "RTK_FIX",
+                                    5 => "RTK_FLOAT",
+                                    _ => "NO_FIX",
+                                };
+                                
+                                // Fall back to GPS track-made-good angle for heading UI visualization
+                                let track_yaw = parser.true_course.unwrap_or(0.0) as f64;
+                                
+                                // Stream live positions back to the Python GCS at 1Hz
+                                let telem_msg = format!("TELEM,{:.3},{:.3},{:.2},{}", dist_tracker.x, dist_tracker.y, track_yaw, fix_label);
+                                let _ = socket.send_to(telem_msg.as_bytes(), "172.20.10.7:5008");
+
+                                // Evaluate arrival using pure GPS leg distance calculation
+                                if is_active_leg {
+                                    // 0.2m mirrors the ARRIVAL_THRESHOLD_M constant in distance_tracker
+                                    if dist_tracker.distance_traveled_m >= target_dist - 0.2 {
+                                        println!("[GPS-Only Mode] Target reached! Stopping.");
+                                        let _ = socket.send_to(b"ARRIVED", "172.20.10.7:5008");
+                                        is_active_leg = false;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -335,8 +363,10 @@ fn main() -> std::io::Result<()> {
             display.update_arduino(&mut stdout, &sensor_data)?;
             
             // 1. Always update the distance tracker and send telemetry
-            if let (Some(ay), Some(pitch), Some(yaw)) = 
-                (sensor_data.acc_lin_y, sensor_data.euler_y, sensor_data.euler_x) {
+            // Fall back to 0.0 for any missing IMU fields (IMU disconnected)
+                let ay = sensor_data.acc_lin_y.unwrap_or(0.0) as f64;
+                let pitch = sensor_data.euler_y.unwrap_or(0.0) as f64;
+                let yaw = sensor_data.euler_x.unwrap_or(0.0) as f64;
                 
                 let dist_out = dist_tracker.update_imu(ay as f64, pitch as f64, target_dist, yaw as f64);
                 let _ = display.update_distance_and_accel(&mut stdout, dist_out.dist_traveled_m as f32, dist_out.accel_filtered as f32);
@@ -388,7 +418,7 @@ fn main() -> std::io::Result<()> {
             }
         } // End of arduino_connected branch
         } // End of Arduino Sensor Branch
-        }
+        
         
         
 
