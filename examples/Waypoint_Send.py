@@ -15,7 +15,7 @@ PYTHON_LISTEN_ADDR = ("0.0.0.0", 5008)
 class MissionControl:
     def __init__(self):
         self.screen = turtle.Screen()
-        self.screen.setup(width=0.65, height=0.75)
+        self.screen.setup(width=1070, height=800)
         self.screen.bgcolor("#2c3e50")
         self.screen.title("Rover GCS - [1] Start | [2] Clear | [3] STOP | [4] Set Origin | [5] Undo | [6] RPM+ | [7] RPM- | Scroll=Zoom | Drag=Pan")
 
@@ -346,8 +346,8 @@ class MissionControl:
         # Always represent exactly 1 meter regardless of zoom
         length = 1.0
         # Calculate viewport-adaptive margins so the position doesn't drift when zooming
-        margin_x = 0.12 * self.view_size  # Distance from right edge
-        margin_y = 0.08 * self.view_size  # Distance from bottom edge
+        margin_x = 0.2 * self.view_size  # Distance from right edge
+        margin_y = 0.2 * self.view_size  # Distance from bottom edge
 
         # Position in the bottom-right corner of the current viewport
         x = (self.pan_x + self.view_size) - length - margin_x
@@ -636,7 +636,7 @@ class MissionControl:
         try:
             self.log_file = open(log_path, "w", newline="")
             self.log_writer = csv.writer(self.log_file)
-            self.log_writer.writerow(["timestamp", "x", "y"])
+            self.log_writer.writerow(["timestamp", "x_meters", "y_meters","gps_fix","accel_x","accel_y","accel_z","yaw","pitch","roll","voltage_r","voltage_l","current_r","current_l","motor_current_r","motor_current_l","rpm_r","rpm_l","sonar_mm","tof_mm","rotations_r","rotations_l\n"])  # Header row
             self.log_file.flush()
             self.is_logging = True
             self.lbl_logging.config(text="● LOGGING: ON", fg="#2ecc71")
@@ -665,15 +665,6 @@ class MissionControl:
         self.update_status("LOGGING STOPPED")
         print("[LOG] Logging stopped.")
 
-    def _write_log_row(self, x, y):
-        if not self.is_logging or self.log_writer is None:
-            return
-        try:
-            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-            self.log_writer.writerow([ts, f"{x:.4f}", f"{y:.4f}"])
-            self.log_file.flush()
-        except Exception as e:
-            print(f"[LOG] Write error: {e}")
 
     # ── MAIN TELEMETRY LOOP ───────────────────────────────────────────────────
 
@@ -690,7 +681,18 @@ class MissionControl:
                 self.lbl_coords.config(text=f"Position: X: {self.current_rover_x:.2f}, Y: {self.current_rover_y:.2f}")
                 turtle_angle         = (90 - rover_yaw) % 360
 
-                self._write_log_row(self.current_rover_x, self.current_rover_y)
+                # ---- NEW LOGGING LOGIC GOES HERE ----
+                if self.is_logging and self.log_file:
+                    # Get current time
+                    iso_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                    
+                    # msg[1:] grabs ALL 21 variables from Rust. 
+                    # join() stitches them together with commas automatically.
+                    data_str = ",".join(msg[1:])
+                    
+                    # Write the timestamp and the 21 variables to the file
+                    self.log_file.write(f"{iso_timestamp},{data_str}\n")
+                    self.log_file.flush()
 
                 self.rover.goto(self.current_rover_x, self.current_rover_y)
                 self.rover.setheading(turtle_angle)

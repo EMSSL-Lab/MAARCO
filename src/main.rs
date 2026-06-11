@@ -362,12 +362,29 @@ fn main() -> std::io::Result<()> {
             logger.log_sensor_data(&sensor_data);
             display.update_arduino(&mut stdout, &sensor_data)?;
             
-            // 1. Always update the distance tracker and send telemetry
+            // Bring all sensor data into scope so we can send to UI logger
             // Fall back to 0.0 for any missing IMU fields (IMU disconnected)
+                let ax = sensor_data.acc_lin_x.unwrap_or(0.0) as f64;
                 let ay = sensor_data.acc_lin_y.unwrap_or(0.0) as f64;
+                let az = sensor_data.acc_lin_z.unwrap_or(0.0) as f64;
                 let pitch = sensor_data.euler_y.unwrap_or(0.0) as f64;
                 let yaw = sensor_data.euler_x.unwrap_or(0.0) as f64;
-                
+                let roll = sensor_data.euler_z.unwrap_or(0.0) as f64;
+                let voltage_left = sensor_data.voltage_left.unwrap_or(0.0) as f64;
+                let voltage_right = sensor_data.voltage_right.unwrap_or(0.0) as f64;
+                let current_left = sensor_data.current_left_ma.unwrap_or(0.0) as f64;
+                let current_right = sensor_data.current_right_ma.unwrap_or(0.0) as f64;
+                let motor_current_left = sensor_data.motor_current_left.unwrap_or(0.0) as f64;
+                let motor_current_right = sensor_data.motor_current_right.unwrap_or(0.0) as f64;
+                let rpm_left = sensor_data.rpm_left.unwrap_or(0.0) as f64;
+                let rpm_right = sensor_data.rpm_right.unwrap_or(0.0) as f64;
+                let sonar_mm = sensor_data.sonar_mm.unwrap_or(0.0) as f64;
+                let tof_mm = sensor_data.tof_mm.unwrap_or(0.0) as f64;
+                let rotations_left = sensor_data.rotations_left.unwrap_or(0.0) as f64;
+                let rotations_right = sensor_data.rotations_right.unwrap_or(0.0) as f64;
+
+
+                // 1. Always update the distance tracker and send telemetry
                 let dist_out = dist_tracker.update_imu(ay as f64, pitch as f64, target_dist, yaw as f64);
                 let _ = display.update_distance_and_accel(&mut stdout, dist_out.dist_traveled_m as f32, dist_out.accel_filtered as f32);
                 
@@ -383,7 +400,7 @@ fn main() -> std::io::Result<()> {
                     5 => "RTK_FLOAT",
                     _ => "NO_FIX",
                 };
-                let telem_msg = format!("TELEM,{:.3},{:.3},{:.2},{}", dist_tracker.x, dist_tracker.y, yaw, fix_label);
+                let telem_msg = format!("TELEM,{:.3},{:.3},{:.2},{},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3}", dist_tracker.x, dist_tracker.y, yaw, fix_label, ax, ay, az, pitch, roll, voltage_left, voltage_right, current_left, current_right, motor_current_left, motor_current_right, rpm_left, rpm_right, sonar_mm, tof_mm, rotations_left, rotations_right);
                 let _ = socket.send_to(telem_msg.as_bytes(), "172.20.10.7:5008");
                 
                 // 2. Control Logic (Only if the mission is active)

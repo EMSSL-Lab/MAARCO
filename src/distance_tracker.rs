@@ -15,9 +15,9 @@
 use std::time::Instant;
 
 // Arrival threshold 
-const ARRIVAL_THRESHOLD_M: f64 = 0.2;
+const ARRIVAL_THRESHOLD_M: f64 = 0.3; // m
 // Filtering const between 0 and 1. Lower value leads to more heavy filtering 
-const ALPHA: f64 = 0.02;
+const ALPHA: f64 = 0.10;
 // acceleration due to gravity
 const G: f64 = 9.81; // m/s^2
 // Deadband threshold to kill drift when idling 
