@@ -23,6 +23,9 @@ pub struct SensorData {
     pub acc_lin_x: Option<f32>,
     pub acc_lin_y: Option<f32>,
     pub acc_lin_z: Option<f32>,
+    pub gyro_x: Option<f32>,
+    pub gyro_y: Option<f32>,
+    pub gyro_z: Option<f32>,
     pub sonar_mm: Option<f32>,
     pub tof_mm: Option<f32>,
     pub rpm_left: Option<f32>,
@@ -48,6 +51,9 @@ impl Default for SensorData {
             acc_lin_x: None,
             acc_lin_y: None,
             acc_lin_z: None,
+            gyro_x: None, 
+            gyro_y: None,
+            gyro_z: None,
             sonar_mm: None,
             tof_mm: None,
             rpm_left: None,
@@ -206,24 +212,33 @@ impl ArduinoSerialPort {
         }
         if parts.len() >= 13 {
             sensor_data.acc_lin_z = parts[12].parse().ok();
-        }
+        } 
         if parts.len() >= 14 {
-            sensor_data.sonar_mm = parts[13].parse().ok();
+            sensor_data.gyro_x = parts[13].parse().ok();
         }
         if parts.len() >= 15 {
-            sensor_data.tof_mm = parts[14].parse().ok();
+            sensor_data.gyro_y = parts[14].parse().ok();
         }
         if parts.len() >= 16 {
-            sensor_data.rpm_left = parts[15].parse().ok();
+            sensor_data.gyro_z = parts[15].parse().ok();
         }
         if parts.len() >= 17 {
-            sensor_data.rpm_right = parts[16].parse().ok();
+            sensor_data.sonar_mm = parts[16].parse().ok();
         }
         if parts.len() >= 18 {
-            sensor_data.rotations_left = parts[17].parse().ok();
+            sensor_data.tof_mm = parts[17].parse().ok();
         }
         if parts.len() >= 19 {
-            sensor_data.rotations_right = parts[18].parse().ok();
+            sensor_data.rpm_left = parts[18].parse().ok();
+        }
+        if parts.len() >= 20 {
+            sensor_data.rpm_right = parts[19].parse().ok();
+        }
+        if parts.len() >= 21 {
+            sensor_data.rotations_left = parts[20].parse().ok();
+        }
+        if parts.len() >= 22 {
+            sensor_data.rotations_right = parts[21].parse().ok();
         }
 
         sensor_data

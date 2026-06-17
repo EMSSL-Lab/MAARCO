@@ -111,7 +111,7 @@ fn main() -> std::io::Result<()> {
 
     // ------------------------------------------------ User input -------------------------
     // Prompt user for control parameters at startup. No dynamic reconfiguration.
-    let mut buf = String::new();
+    // let mut buf = String::new();
 
     // println!("Enter Yaw proportional gain (Kp):");
     // io::stdin().read_line(&mut buf)?;
@@ -173,9 +173,8 @@ fn main() -> std::io::Result<()> {
     // Declare targets for yaw, rpm, and distance
     let mut target_yaw: f64 = 0.0;
     let mut target_dist: f64 = 0.0;
-    let mut target_rpm: f64 = 30.0;
+    let mut target_rpm: f64 = 0.0;
 
-    // *** NEW, "is active?" leg flag
     let mut is_active_leg: bool = false;
     // ADD SOCKET SETUP HERE
     let socket = UdpSocket::bind("0.0.0.0:5007").expect("Couldn't bind to UDP Socket");
@@ -228,11 +227,13 @@ fn main() -> std::io::Result<()> {
                         eprintln!("Invalid NAV format: {}", msg);
                     }
                 } else if parts[0] == "RPM" && parts.len() == 2 {
-
                     if let Ok(val) = parts[1].parse::<f64>() {
-                        target_rpm = val;
-                        println!("Target RPM updated via GCS: {:.1}", target_rpm);
+                    target_rpm = val;
+                    rpm_ctrl.reset();              // ← clears last_error and dt timer
+                    // rpm_ctrl.reset_base_throttle(); // ← unwinds the integrator
+                    println!("Target RPM updated via GCS: {:.1}", target_rpm);
                     }
+
                 } else if parts[0] == "STOP" {
                     is_active_leg = false;
                     let _ = motor::update_pwm_l(&mut motor_pin_l, 1500); 
@@ -403,7 +404,7 @@ fn main() -> std::io::Result<()> {
                 let telem_msg = format!("TELEM,{:.3},{:.3},{:.2},{},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3}", dist_tracker.x, dist_tracker.y, yaw, fix_label, ax, ay, az, pitch, roll, voltage_left, voltage_right, current_left, current_right, motor_current_left, motor_current_right, rpm_left, rpm_right, sonar_mm, tof_mm, rotations_left, rotations_right);
                 let _ = socket.send_to(telem_msg.as_bytes(), "172.20.10.7:5008");
                 
-                // 2. Control Logic (Only if the mission is active)
+                // 2. Control Logic (Only if we are trying to move somewhere)
                 if is_active_leg {
                     // Check for Arrival
                     if dist_out.arrived {
@@ -433,19 +434,11 @@ fn main() -> std::io::Result<()> {
                 let _ = motor::update_pwm_l(&mut motor_pin_l, 1500);
                 let _ = motor::update_pwm_r(&mut motor_pin_r, 1500);
             }
-        } // End of arduino_connected branch
-        } // End of Arduino Sensor Branch
+    } // End of arduino_connected branch
+} // End of Arduino Sensor Branch
         
         
         
-
-        // =========================================================================
-        
-        
-
-        // =========================================================================
-
-    
 
 
 

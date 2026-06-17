@@ -15,7 +15,7 @@ PYTHON_LISTEN_ADDR = ("0.0.0.0", 5008)
 class MissionControl:
     def __init__(self):
         self.screen = turtle.Screen()
-        self.screen.setup(width=1070, height=800)
+        self.screen.setup(width=1340, height=800)
         self.screen.bgcolor("#2c3e50")
         self.screen.title("Rover GCS - [1] Start | [2] Clear | [3] STOP | [4] Set Origin | [5] Undo | [6] RPM+ | [7] RPM- | Scroll=Zoom | Drag=Pan")
 
@@ -29,14 +29,15 @@ class MissionControl:
         # ── TKINTER SETUP ─────────────────────────────────────────────────────
         self.tk_root   = self.screen._root
         self.tk_canvas = self.screen.getcanvas()
-        self.HUD_W     = 270
+        self.HUD_W    = 270
+        self.TELEM_W  = 260
 
         self.screen.tracer(0)
         self.tk_root.update_idletasks()
         win_w = self.tk_root.winfo_width()
         win_h = self.tk_root.winfo_height()
 
-        self.tk_canvas.config(width=win_w - self.HUD_W, height=win_h)
+        self.tk_canvas.config(width=win_w - self.HUD_W - self.TELEM_W, height=win_h)
         self.tk_canvas.grid(row=0, column=0, sticky="nsew")
 
         # ── HUD PANEL ─────────────────────────────────────────────────────────
@@ -47,11 +48,12 @@ class MissionControl:
 
         self.tk_root.columnconfigure(0, weight=1)
         self.tk_root.columnconfigure(1, weight=0)
+        self.tk_root.columnconfigure(2, weight=0)
         self.tk_root.rowconfigure(0, weight=1)
 
         pad = dict(padx=8, pady=3, anchor="w")
 
-        tk.Label(self.hud_frame, text="══ MAARCO HUD ══",
+        tk.Label(self.hud_frame, text="══ TELEMETRY DATA ══",
                  bg="#1a252f", fg="#ecf0f1",
                  font=("Arial", 11, "bold")).pack(pady=(10, 4))
 
@@ -154,6 +156,87 @@ class MissionControl:
                  bg="#1a252f", fg="#7f8c8d",
                  font=("Arial", 8, "normal"),
                  justify="left").pack(side="bottom", padx=8, pady=8, anchor="w")
+
+        # ── LIVE TELEMETRY PANEL (right side) ────────────────────────────────
+        BG   = "#0d1b2a"   # dark navy background
+        FG   = "#cfd8dc"   # default text colour
+        GRN  = "#2ecc71"
+        YEL  = "#f1c40f"
+        CYN  = "#1abc9c"
+        RED  = "#e74c3c"
+        DIM  = "#546e7a"
+        VAL  = "#ecf0f1"
+
+        self.telem_frame = tk.Frame(self.tk_root, bg=BG,
+                                    width=self.TELEM_W, bd=2, relief="sunken")
+        self.telem_frame.grid(row=0, column=2, sticky="nsew")
+        self.telem_frame.grid_propagate(False)
+
+        def _section(parent, title, color=CYN):
+            tk.Label(parent, text=title, bg=BG, fg=color,
+                     font=("Arial", 9, "bold")).pack(fill="x", padx=8, pady=(8, 1))
+            tk.Frame(parent, bg=color, height=1).pack(fill="x", padx=6, pady=(0, 4))
+
+        def _row(parent, label, init="—", val_color=VAL):
+            f = tk.Frame(parent, bg=BG)
+            f.pack(fill="x", padx=10, pady=1)
+            tk.Label(f, text=label, bg=BG, fg=DIM,
+                     font=("Courier", 9, "normal"), width=14, anchor="w").pack(side="left")
+            v = tk.Label(f, text=init, bg=BG, fg=val_color,
+                         font=("Courier", 9, "bold"), anchor="e")
+            v.pack(side="right")
+            return v
+
+        tk.Label(self.telem_frame, text="══ LIVE DATA ══",
+                 bg=BG, fg=FG, font=("Arial", 11, "bold")).pack(pady=(10, 2))
+
+        # ── IMU ───────────────────────────────────────────────────────────────
+        _section(self.telem_frame, " ══ IMU  /  ATTITUDE ══", YEL)
+        self.td_yaw   = _row(self.telem_frame, "Yaw", val_color=YEL)
+        self.td_pitch = _row(self.telem_frame, "Pitch", val_color=YEL)
+        self.td_roll  = _row(self.telem_frame, "Roll", val_color=YEL)
+        tk.Frame(self.telem_frame, bg=BG, height=2).pack()
+        self.td_ax    = _row(self.telem_frame, "Accel X", val_color=YEL)
+        self.td_ay    = _row(self.telem_frame, "Accel Y", val_color=YEL)
+        self.td_az    = _row(self.telem_frame, "Accel Z", val_color=YEL)
+
+        # ── MOTORS ────────────────────────────────────────────────────────────
+        _section(self.telem_frame, " ══ MOTOR DATA ══", GRN)
+
+        # RPM sub-header
+        tk.Label(self.telem_frame, text=" ---- RPM ----", bg=BG, fg=DIM,
+                 font=("Courier", 8, "normal")).pack(anchor="w", padx=10)
+        self.td_rpm_r  = _row(self.telem_frame, "  Right", val_color=GRN)
+        self.td_rpm_l  = _row(self.telem_frame, "  Left",  val_color=GRN)
+
+        # Voltage sub-header
+        tk.Label(self.telem_frame, text=" ---- Voltage (V) ----", bg=BG, fg=DIM,
+                 font=("Courier", 8, "normal")).pack(anchor="w", padx=10)
+        self.td_volt_r = _row(self.telem_frame, "  Right", val_color=GRN)
+        self.td_volt_l = _row(self.telem_frame, "  Left",  val_color=GRN)
+
+        # Current sub-header
+        tk.Label(self.telem_frame, text=" ---- Current (A) ----", bg=BG, fg=DIM,
+                 font=("Courier", 8, "normal")).pack(anchor="w", padx=10)
+        self.td_cur_r  = _row(self.telem_frame, "  Right", val_color=GRN)
+        self.td_cur_l  = _row(self.telem_frame, "  Left",  val_color=GRN)
+
+        # Motor current sub-header
+        tk.Label(self.telem_frame, text=" ---- Motor Current (A) ----", bg=BG, fg=DIM,
+                 font=("Courier", 8, "normal")).pack(anchor="w", padx=10)
+        self.td_mcur_r = _row(self.telem_frame, "  Right", val_color=GRN)
+        self.td_mcur_l = _row(self.telem_frame, "  Left",  val_color=GRN)
+
+        # Rotations sub-header
+        tk.Label(self.telem_frame, text=" ---- Total Revolutions ----", bg=BG, fg=DIM,
+                 font=("Courier", 8, "normal")).pack(anchor="w", padx=10)
+        self.td_rot_r  = _row(self.telem_frame, "  Right", val_color=GRN)
+        self.td_rot_l  = _row(self.telem_frame, "  Left",  val_color=GRN)
+
+        # ── SENSORS ───────────────────────────────────────────────────────────
+        _section(self.telem_frame, " ══ Distance Sensors ══", RED)
+        self.td_sonar = _row(self.telem_frame, "Sonar",  val_color=RED)
+        self.td_tof   = _row(self.telem_frame, "ToF",    val_color=RED)
 
         # ── WORLD COORDINATES ─────────────────────────────────────────────────
         self._apply_world_coords()
@@ -513,7 +596,7 @@ class MissionControl:
     # ── MISSION CONTROLS ──────────────────────────────────────────────────────
 
     def handle_click(self, x, y):
-        if math.sqrt(x**2 + y**2) < 1.0:
+        if math.sqrt(x**2 + y**2) < 0.5:
             print("Point too close to origin! Click further away.")
             return
         self.waypoint_queue.append((x, y))
@@ -624,6 +707,54 @@ class MissionControl:
         self.send_nav_command(tx, ty)
         self.draw_path()
 
+    # ── LIVE TELEMETRY PANEL UPDATE ───────────────────────────────────────────
+
+    def update_live_panel(self, msg):
+        """Parse the full TELEM message and refresh every label in the live panel.
+
+        Expected TELEM format (0-based msg index):
+          msg[0]  = "TELEM"
+          msg[1]  = x           msg[2]  = y
+          msg[3]  = yaw         msg[4]  = gps_fix
+          msg[5]  = accel_x     msg[6]  = accel_y     msg[7]  = accel_z
+          msg[8]  = pitch       msg[9]  = roll
+          msg[10] = voltage_r   msg[11] = voltage_l
+          msg[12] = current_r   msg[13] = current_l
+          msg[14] = motor_current_r  msg[15] = motor_current_l
+          msg[16] = rpm_r       msg[17] = rpm_l
+          msg[18] = sonar_mm    msg[19] = tof_mm
+          msg[20] = rotations_r msg[21] = rotations_l
+        """
+        def _safe(index, fmt=".2f", suffix=""):
+            try:
+                return f"{float(msg[index]):{fmt}}{suffix}"
+            except (IndexError, ValueError):
+                return "—"
+
+        # IMU / Attitude
+        self.td_yaw.config(  text=_safe(3,  ".1f", "°"))
+        self.td_pitch.config( text=_safe(8,  ".1f", "°"))
+        self.td_roll.config(  text=_safe(9,  ".1f", "°"))
+        self.td_ax.config(    text=_safe(5,  ".3f", " g"))
+        self.td_ay.config(    text=_safe(6,  ".3f", " g"))
+        self.td_az.config(    text=_safe(7,  ".3f", " g"))
+
+        # Drivetrain
+        self.td_rpm_r.config(  text=_safe(16, ".1f", " rpm"))
+        self.td_rpm_l.config(  text=_safe(17, ".1f", " rpm"))
+        self.td_volt_r.config( text=_safe(10, ".2f", " V"))
+        self.td_volt_l.config( text=_safe(11, ".2f", " V"))
+        self.td_cur_r.config(  text=_safe(12, ".3f", " A"))
+        self.td_cur_l.config(  text=_safe(13, ".3f", " A"))
+        self.td_mcur_r.config( text=_safe(14, ".3f", " A"))
+        self.td_mcur_l.config( text=_safe(15, ".3f", " A"))
+        self.td_rot_r.config(  text=_safe(20, ".1f"))
+        self.td_rot_l.config(  text=_safe(21, ".1f"))
+
+        # Sensors
+        self.td_sonar.config( text=_safe(18, ".0f", " mm"))
+        self.td_tof.config(   text=_safe(19, ".0f", " mm"))
+
     # ── CSV LOGGING ───────────────────────────────────────────────────────────
 
     def start_logging(self):
@@ -680,6 +811,9 @@ class MissionControl:
                 rover_yaw            = float(msg[3])
                 self.lbl_coords.config(text=f"Position: X: {self.current_rover_x:.2f}, Y: {self.current_rover_y:.2f}")
                 turtle_angle         = (90 - rover_yaw) % 360
+
+                # Update live data panel with all telemetry fields
+                self.update_live_panel(msg)
 
                 # ---- NEW LOGGING LOGIC GOES HERE ----
                 if self.is_logging and self.log_file:
