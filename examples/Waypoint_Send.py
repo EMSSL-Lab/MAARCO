@@ -17,7 +17,7 @@ class MissionControl:
         self.screen = turtle.Screen()
         self.screen.setup(width=1340, height=800)
         self.screen.bgcolor("#2c3e50")
-        self.screen.title("Rover GCS - [1] Start | [2] Clear | [3] STOP | [4] Set Origin | [5] Undo | [6] RPM+ | [7] RPM- | Scroll=Zoom | Drag=Pan")
+        self.screen.title("Rover GCS - [1] Start | [2] Clear | [3] STOP | [4] Set Origin | [5] Undo | [▲] RPM+ | [▼] RPM- | Scroll=Zoom | Drag=Pan")
 
         # ── VIEW STATE ────────────────────────────────────────────────────────
         # view_size: half-width/height of the visible world in meters
@@ -187,7 +187,7 @@ class MissionControl:
             v.pack(side="right")
             return v
 
-        tk.Label(self.telem_frame, text="══ LIVE DATA ══",
+        tk.Label(self.telem_frame, text="══ LIVE SENSOR DATA ══",
                  bg=BG, fg=FG, font=("Arial", 11, "bold")).pack(pady=(10, 2))
 
         # ── IMU ───────────────────────────────────────────────────────────────
@@ -195,6 +195,9 @@ class MissionControl:
         self.td_yaw   = _row(self.telem_frame, "Yaw", val_color=YEL)
         self.td_pitch = _row(self.telem_frame, "Pitch", val_color=YEL)
         self.td_roll  = _row(self.telem_frame, "Roll", val_color=YEL)
+        self.td_gyro_x = _row(self.telem_frame, "Gyro X", val_color=YEL)
+        self.td_gyro_y = _row(self.telem_frame, "Gyro Y", val_color=YEL)
+        self.td_gyro_z = _row(self.telem_frame, "Gyro Z", val_color=YEL)
         tk.Frame(self.telem_frame, bg=BG, height=2).pack()
         self.td_ax    = _row(self.telem_frame, "Accel X", val_color=YEL)
         self.td_ay    = _row(self.telem_frame, "Accel Y", val_color=YEL)
@@ -311,8 +314,8 @@ class MissionControl:
         self.screen.onkey(self.emergency_stop, "3")
         self.screen.onkey(self.set_origin,     "4")
         self.screen.onkey(self.undo_waypoint,  "5")
-        self.screen.onkey(self.increase_rpm,   "6")
-        self.screen.onkey(self.decrease_rpm,   "7")
+        self.screen.onkey(self.increase_rpm,   "Up")
+        self.screen.onkey(self.decrease_rpm,   "Down")
 
         self.update_status("READY: Click to set points")
         self.update_rover()
@@ -718,12 +721,13 @@ class MissionControl:
           msg[3]  = yaw         msg[4]  = gps_fix
           msg[5]  = accel_x     msg[6]  = accel_y     msg[7]  = accel_z
           msg[8]  = pitch       msg[9]  = roll
-          msg[10] = voltage_r   msg[11] = voltage_l
-          msg[12] = current_r   msg[13] = current_l
-          msg[14] = motor_current_r  msg[15] = motor_current_l
-          msg[16] = rpm_r       msg[17] = rpm_l
+          msg[10] = voltage_l   msg[11] = voltage_r
+          msg[12] = current_l   msg[13] = current_r
+          msg[14] = motor_current_l  msg[15] = motor_current_r
+          msg[16] = rpm_l       msg[17] = rpm_r
           msg[18] = sonar_mm    msg[19] = tof_mm
-          msg[20] = rotations_r msg[21] = rotations_l
+          msg[20] = rotations_l msg[21] = rotations_r
+          msg [22] = gyro_x     msg[23] = gyro_y     msg[24] = gyro_z
         """
         def _safe(index, fmt=".2f", suffix=""):
             try:
@@ -735,21 +739,24 @@ class MissionControl:
         self.td_yaw.config(  text=_safe(3,  ".1f", "°"))
         self.td_pitch.config( text=_safe(8,  ".1f", "°"))
         self.td_roll.config(  text=_safe(9,  ".1f", "°"))
+        self.td_gyro_x.config( text=_safe(22,  ".3f", " °/s"))
+        self.td_gyro_y.config( text=_safe(23,  ".3f", " °/s"))
+        self.td_gyro_z.config( text=_safe(24,  ".3f"," °/s"))
         self.td_ax.config(    text=_safe(5,  ".3f", " g"))
         self.td_ay.config(    text=_safe(6,  ".3f", " g"))
         self.td_az.config(    text=_safe(7,  ".3f", " g"))
 
         # Drivetrain
-        self.td_rpm_r.config(  text=_safe(16, ".1f", " rpm"))
-        self.td_rpm_l.config(  text=_safe(17, ".1f", " rpm"))
-        self.td_volt_r.config( text=_safe(10, ".2f", " V"))
-        self.td_volt_l.config( text=_safe(11, ".2f", " V"))
-        self.td_cur_r.config(  text=_safe(12, ".3f", " A"))
-        self.td_cur_l.config(  text=_safe(13, ".3f", " A"))
-        self.td_mcur_r.config( text=_safe(14, ".3f", " A"))
-        self.td_mcur_l.config( text=_safe(15, ".3f", " A"))
-        self.td_rot_r.config(  text=_safe(20, ".1f"))
-        self.td_rot_l.config(  text=_safe(21, ".1f"))
+        self.td_rpm_r.config(  text=_safe(17, ".1f", " rpm"))
+        self.td_rpm_l.config(  text=_safe(16, ".1f", " rpm"))
+        self.td_volt_r.config( text=_safe(11, ".2f", " V"))
+        self.td_volt_l.config( text=_safe(10, ".2f", " V"))
+        self.td_cur_r.config(  text=_safe(13, ".3f", " A"))
+        self.td_cur_l.config(  text=_safe(12, ".3f", " A"))
+        self.td_mcur_r.config( text=_safe(15, ".3f", " A"))
+        self.td_mcur_l.config( text=_safe(14, ".3f", " A"))
+        self.td_rot_r.config(  text=_safe(21, ".1f"))
+        self.td_rot_l.config(  text=_safe(20, ".1f"))
 
         # Sensors
         self.td_sonar.config( text=_safe(18, ".0f", " mm"))
@@ -767,7 +774,7 @@ class MissionControl:
         try:
             self.log_file = open(log_path, "w", newline="")
             self.log_writer = csv.writer(self.log_file)
-            self.log_writer.writerow(["timestamp", "x_meters", "y_meters","gps_fix","accel_x","accel_y","accel_z","yaw","pitch","roll","voltage_r","voltage_l","current_r","current_l","motor_current_r","motor_current_l","rpm_r","rpm_l","sonar_mm","tof_mm","rotations_r","rotations_l\n"])  # Header row
+            self.log_writer.writerow(["timestamp", "x_meters", "y_meters","gps_fix","accel_x","accel_y","accel_z","yaw","pitch","roll","voltage_l","voltage_r","current_l","current_r","motor_current_l","motor_current_r","rpm_l","rpm_r","sonar_mm","tof_mm","rotations_l","rotations_r","gyro_x","gyro_y","gyro_z"])  # Header row
             self.log_file.flush()
             self.is_logging = True
             self.lbl_logging.config(text="● LOGGING: ON", fg="#2ecc71")

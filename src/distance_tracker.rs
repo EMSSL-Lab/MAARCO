@@ -180,7 +180,7 @@ pub fn reset_for_new_target(&mut self) {
         }
 
 
-        // ***NEW Filter Pipeline: Debias -> Median -> EMA -> Deadband
+        // Filter Pipeline: Debias -> Median -> EMA -> Deadband
         // Step 1: Debias (Gravity Vector Component Removal)
         let gravity_component = G*pitch_deg.to_radians().sin().clamp(-G, G);
         let accel = acc_y - gravity_component;

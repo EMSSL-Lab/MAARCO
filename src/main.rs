@@ -160,8 +160,8 @@ fn main() -> std::io::Result<()> {
     // Set controller gains here
     let kp_yaw: f64 = 5.0;
     let kd_yaw: f64 = 1.0;
-    let kp_rpm: f64 = 0.7;
-    let kd_rpm: f64 = 0.05;
+    let kp_rpm: f64 = 0.8;
+    let kd_rpm: f64 = 0.06;
     
     
     // Initialize control variables
@@ -383,7 +383,9 @@ fn main() -> std::io::Result<()> {
                 let tof_mm = sensor_data.tof_mm.unwrap_or(0.0) as f64;
                 let rotations_left = sensor_data.rotations_left.unwrap_or(0.0) as f64;
                 let rotations_right = sensor_data.rotations_right.unwrap_or(0.0) as f64;
-
+                let gyro_x = sensor_data.gyro_x.unwrap_or(0.0) as f64;
+                let gyro_y = sensor_data.gyro_y.unwrap_or(0.0) as f64;
+                let gyro_z = sensor_data.gyro_z.unwrap_or(0.0) as f64;
 
                 // 1. Always update the distance tracker and send telemetry
                 let dist_out = dist_tracker.update_imu(ay as f64, pitch as f64, target_dist, yaw as f64);
@@ -401,7 +403,7 @@ fn main() -> std::io::Result<()> {
                     5 => "RTK_FLOAT",
                     _ => "NO_FIX",
                 };
-                let telem_msg = format!("TELEM,{:.3},{:.3},{:.2},{},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3}", dist_tracker.x, dist_tracker.y, yaw, fix_label, ax, ay, az, pitch, roll, voltage_left, voltage_right, current_left, current_right, motor_current_left, motor_current_right, rpm_left, rpm_right, sonar_mm, tof_mm, rotations_left, rotations_right);
+                let telem_msg = format!("TELEM,{:.3},{:.3},{:.2},{},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3}", dist_tracker.x, dist_tracker.y, yaw, fix_label, ax, ay, az, pitch, roll, voltage_left, voltage_right, current_left, current_right, motor_current_left, motor_current_right, rpm_left, rpm_right, sonar_mm, tof_mm, rotations_left, rotations_right, gyro_x, gyro_y, gyro_z);
                 let _ = socket.send_to(telem_msg.as_bytes(), "172.20.10.7:5008");
                 
                 // 2. Control Logic (Only if we are trying to move somewhere)
