@@ -5,6 +5,7 @@ import time
 import tkinter as tk
 import csv
 import os
+from collections import deque
 from datetime import datetime
 
 # UPDATE THESE TO YOUR ACTUAL IPs
@@ -118,7 +119,7 @@ class MissionControl:
 
         tk.Frame(self.hud_frame, bg="#34495e", height=1).pack(fill="x", padx=6, pady=4)
 
-        tk.Label(self.hud_frame, text="CSV LOGGING",
+        tk.Label(self.hud_frame, text="DATA LOGGING",
                  bg="#1a252f", fg="#7f8c8d",
                  font=("Arial", 9, "bold")).pack(padx=8, pady=(2, 2), anchor="w")
 
@@ -150,6 +151,22 @@ class MissionControl:
             state="disabled"
         )
         self.btn_stop_log.pack(side="left")
+
+        ## Motor battery voltage label
+
+        tk.Frame(self.hud_frame, bg="#34495e", height=1).pack(fill="x", padx=6, pady=4)
+
+        tk.Frame(self.hud_frame, bg="#34495e", height=1).pack(fill="x", padx=6, pady=4)
+
+        self.lbl_voltage = tk.Label(
+            self.hud_frame, text="Motor Battery Voltage: --.-- V", font=("Courier",12,"bold"), 
+            bg="#1a252f", fg="#34bd1c", anchor="w" 
+        )
+        self.lbl_voltage.pack(fill="x", padx=8, pady=2)
+
+        # Create a queue that remembers the last 150 readings (10 seconds)
+        self.voltage_history = deque(maxlen=150)
+
 
         tk.Label(self.hud_frame,
                  text="[1] Start  [2] Clear\n[3] STOP   [4] Origin\n[5] Undo   [6/7] RPM±\nScroll=Zoom  Drag=Pan",
@@ -272,7 +289,7 @@ class MissionControl:
         # ── STATE VARIABLES ───────────────────────────────────────────────────
         self.last_heartbeat      = 0
         self.last_drawn_state    = None
-        self.target_rpm          = 30.0
+        self.target_rpm          = 0.0
         self.waypoint_queue      = []
         self.is_navigating       = False
         self.active_waypoint     = None
@@ -634,7 +651,7 @@ class MissionControl:
         self.sock.sendto(b"STOP", RUST_SEND_ADDR)
         self.is_navigating = False
         self.draw_path()
-        self.update_status("EMERGENCY STOP SENT")
+        self.update_status("STOP COMMAND SENT")
         print("Sent: STOP Command to Rover!")
 
     def clear_mission(self):
@@ -690,7 +707,7 @@ class MissionControl:
         dx = tx - self.current_rover_x
         dy = ty - self.current_rover_y
         distance     = math.sqrt(dx**2 + dy**2)
-        target_angle = math.degrees(math.atan2(dy, dx))
+        target_angle = math.degrees(math.atan2(dx, dy)) ## Swapped dx and dy here, UI has 0 degrees as east but RUST sees o degrees as North, so we need to swap the arguments to atan2 to get the correct angle for RUST
         nav_msg = f"NAV,{distance:.3f},{target_angle:.3f}"
         self.sock.sendto(nav_msg.encode(), RUST_SEND_ADDR)
         self.draw_nav_info(distance, target_angle)
@@ -818,6 +835,47 @@ class MissionControl:
                 rover_yaw            = float(msg[3])
                 self.lbl_coords.config(text=f"Position: X: {self.current_rover_x:.2f}, Y: {self.current_rover_y:.2f}")
                 turtle_angle         = (90 - rover_yaw) % 360
+
+            # --- NEW BATTERY WARNING LOGIC ---
+                if len(msg) > 10:
+                    try:
+                        voltage_l = float(msg[10]) # Index 10 is voltage_left
+                        voltage_r = float(msg[11]) # Index 11 is voltage_right
+                       # raw_average_voltage = (voltage_l + voltage_r) / 2.0
+                        m = 1 # calibration constant: SCALE (slope)
+                        b = 0.5 # [V] Calibration constant: OFFSET (y-intercept)
+                        # Right voltage reading seems more accurate than left 
+                        # 1. Mathematical model (linear equation) to adjust voltage to represent true battery voltage, taking in factors such as upstream resistance and sensor inaccuracies
+                        true_voltage = (voltage_r*m) + b 
+                        # 2. Add new voltage reading to history list
+                        self.voltage_history.append(true_voltage)
+
+                        # 3. Calculate the average of the last X number of readings
+                        avg_voltage = sum(self.voltage_history) / len(self.voltage_history)
+
+                        # Set your low-voltage threshold here! 
+                        # This warning threshold should be lower than the actual cutoff threshold due to resistance in the wires
+                        warning_threshold = 10.2 
+
+                        # Update voltage label based on average voltage 
+                        
+                        if avg_voltage < warning_threshold:
+                            # Red text + "LOW" warning
+                            self.lbl_voltage.config(
+                                text=f"BATTERY: {avg_voltage:.2f} V [LOW VOLTAGE!]", 
+                                fg="#932013"
+                            )
+                        elif 10.2 <= avg_voltage <= 10.8:
+                            self.lbl_voltage.config(
+                                text=f"BATTERY: {avg_voltage:.2f} V ", fg="#f1c40f")
+                        elif avg_voltage > 10.8:
+                            # Normal green text
+                            self.lbl_voltage.config(
+                                text=f"BATTERY: {avg_voltage:.2f} V", 
+                                fg="#2ecc71"
+                            )
+                    except ValueError:
+                        pass # Ignore temporary parsing glitches
 
                 # Update live data panel with all telemetry fields
                 self.update_live_panel(msg)

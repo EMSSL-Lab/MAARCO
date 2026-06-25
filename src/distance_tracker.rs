@@ -15,7 +15,7 @@
 use std::time::Instant;
 
 // Arrival threshold 
-const ARRIVAL_THRESHOLD_M: f64 = 0.3; // m
+const ARRIVAL_THRESHOLD_M: f64 = 0.2; // m
 // Filtering const between 0 and 1. Lower value leads to more heavy filtering 
 const ALPHA: f64 = 0.10;
 // acceleration due to gravity
@@ -24,6 +24,8 @@ const G: f64 = 9.81; // m/s^2
 const DEADBAND_EPSILON: f64 = 0.05;
 // Earth radius in meters for haversine calculations
 const EARTH_RADIUS_M: f64 = 6_371_000.0;
+
+const GPS_SPEED_DEADBAND_KMH: f64 = 0.5; // km/hr
 pub struct DistanceTracker {
     // Start position (set once on first GPS fix, never changes)
     start_lat: Option<f64>,
@@ -139,8 +141,11 @@ pub fn reset_for_new_target(&mut self) {
             let leg_lon = self.leg_start_lon.unwrap();
             self.distance_traveled_m = haversine(leg_lat, leg_lon, lat, lon);
         }
-
-        self.velocity_ms = speed_kmh / 3.6;
+        // handle GPS speed deadband to prevent drift when idling
+        if speed_kmh < GPS_SPEED_DEADBAND_KMH{
+            self.velocity_ms = 0.0;
+        } else {
+        self.velocity_ms = speed_kmh / 3.6; }
     }
 
     // ── IMU Update (called ~10 Hz) ─────────────────────────────────────

@@ -35,10 +35,10 @@ let dt = now.duration_since(self.last_time).as_secs_f64();
 
 // Handle angle wrap around
 let mut error = target_yaw - current_yaw;
-if error > 180.0 {
+while error > 180.0 {
     error -= 360.0;
 }
-else if error < -180.0 {
+while error < -180.0 {
     error += 360.0;
 }
 
@@ -66,14 +66,14 @@ pub fn compute_motor_commands(
     base_speed_right: u64, // User declared base pwm 
 ) -> MotorCommands {
     let yaw_correction = self.yaw_calculate(current_yaw, target_yaw);
+    // If the base throttle is 1500, then right motor should not turn
+    if base_speed_right == 1500 {
+        return MotorCommands {
+            right_pwm_us: 1500,
+        };
+    }
 
-    // Right motor handles all the adjustment
-    // If yaw_correction is positive (need to turn right), 
-    // subtracting it makes the right motor slower.
-    // I think the way the logic currently is will have the right and left motors always at a different baseline speed, since we do not inherently know what pwm 
-    // value corresponds to what rpm. The rpm controller should really increase the base throttle for both the right and left motors and we should input
-    // a desired rpm for both the left and the right motors
-    let right_pwm = (base_speed_right as f64 + yaw_correction).clamp(1600.0, 2000.0) as u64;
+    let right_pwm = (base_speed_right as f64 + yaw_correction).clamp(1500.0, 2000.0) as u64;
 
     MotorCommands {
         right_pwm_us: right_pwm as u64,

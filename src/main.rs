@@ -24,9 +24,9 @@ use std::time::{Instant, Duration};
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    /// NTRIP mountpoint (e.g., MOUNTPOINT)
-    #[arg(long)]
-    ntrip_mount: Option<String>, // E.g. "VMAX-LAND-1"
+    /// NTRIP mountpoint (e.g., MOUNTPOINT) Connect to Cary Base Station by Default
+    #[arg(long, default_value = "VMAX-LAND-1")]
+    ntrip_mount: String, // E.g. "VMAX-LAND-1"
     /// GPS serial port path (e.g., /dev/ttyUSB0)
     #[arg(long, default_value = "/dev/ttyS0")]
     gps_port: PathBuf,
@@ -196,7 +196,7 @@ fn main() -> std::io::Result<()> {
 
     // Channel for NTRIP data to write to serial
     let (tx, rx) = mpsc::channel::<Vec<u8>>();
-    if let Some(mount) = args.ntrip_mount {
+    let mount = args.ntrip_mount.clone(); {
         std::thread::spawn(move || {
             ntrip::connect_rtk2go_ntrip(tx, &mount);
         });
@@ -218,10 +218,8 @@ fn main() -> std::io::Result<()> {
                         target_yaw = y;
                         is_active_leg = true;
                         dist_tracker.reset_leg();
-                        dist_tracker.reset_for_new_target();
                         yaw_ctrl.reset();
                         rpm_ctrl.reset();
-                        rpm_ctrl.reset_base_throttle();
                         println!("NAV: {:.3}m @ {:.3}°", target_dist, target_yaw);
                     } else {
                         eprintln!("Invalid NAV format: {}", msg);
@@ -351,7 +349,7 @@ fn main() -> std::io::Result<()> {
 
 
         // --- ARDUINO SENSOR BRANCH ---
-        // This is where your code processes the 10Hz data from the rover
+        // This is where the code processes the 10Hz data from the rover
         // --- ARDUINO SENSOR BRANCH ---
         if arduino_connected {
             let sensor_data = match arduino_port.as_mut().unwrap().read_data() {
@@ -413,8 +411,7 @@ fn main() -> std::io::Result<()> {
                         println!("Target reached! Stopping.");
                         let _ = socket.send_to(b"ARRIVED", "172.20.10.7:5008");
                         is_active_leg = false; 
-                    }
-
+                    } else {
                     // Left Motor RPM Control
                     if let Some(rpm_l) = sensor_data.rpm_left {
                         let rpm_cmd = rpm_ctrl.compute_motor_commands(rpm_l as f64, target_rpm);
@@ -425,7 +422,7 @@ fn main() -> std::io::Result<()> {
                     if let Some(euler_x) = sensor_data.euler_x {
                         let yaw_cmd = yaw_ctrl.compute_motor_commands(euler_x as f64, target_yaw, base_throttle);
                         let _ = motor::update_pwm_r(&mut motor_pin_r, yaw_cmd.right_pwm_us as i64);
-                    }
+                    }}
                 } else {
                     // MISSION NOT ACTIVE: Force motors to neutral
                     let _ = motor::update_pwm_l(&mut motor_pin_l, 1500);
