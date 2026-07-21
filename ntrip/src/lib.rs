@@ -1,4 +1,5 @@
-// src/ntrip.rs
+pub mod source;
+
 use base64::{Engine as _, engine::general_purpose};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::TcpStream;

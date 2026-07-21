@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "rtkbase",
+    "rtk",
     "ntrip",
 ]
 resolver = "2"
@@ -23,4 +23,4 @@ nmea = { version = "0.7.0", features = ["default", "serde"] }
 serde = "1.0.228"
 serialport = { version = "4.7.3", default-features = false }
 ntrip = { path = "ntrip" }
-rtkbase = { path = "rtkbase" }
+rtk = { path = "rtk" }

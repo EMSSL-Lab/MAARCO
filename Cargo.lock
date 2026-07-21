@@ -555,7 +555,7 @@ dependencies = [
  "eyre",
  "nmea",
  "ntrip",
- "rtkbase",
+ "rtk",
  "serde",
  "serialport",
 ]
@@ -722,9 +722,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "rtkbase"
+name = "rtk"
 version = "0.1.0"
 dependencies = [
+ "libc",
+ "log",
+ "ntrip",
  "serialport",
 ]
 
