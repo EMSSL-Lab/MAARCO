@@ -3,6 +3,8 @@ use crate::protocol::pair::PairResponse;
 use crate::protocol::response::{PQTMResponse, ParseError, WireMessage};
 use crate::protocol::sentence::Deserialize;
 
+const MAX_PENDING_SENTENCE_BYTES: usize = 4096;
+
 // ── GSV accumulator ───────────────────────────────────────────────────────────
 
 /// Holds partial satellite data while accumulating a multi-sentence GSV sequence.
@@ -62,33 +64,32 @@ impl PQTMParser {
         let mut buffer = self.incomplete_sentence.clone() + data;
 
         loop {
-            // a. Find the next `$` in the buffer.
-            let start_index = match buffer.find('$') {
+            // Find the next complete line first, then use the final `$` on
+            // that line as its start. RTCM is binary and may itself contain a
+            // 0x24 (`$`) byte; choosing the first `$` would make that byte
+            // swallow the real PQTM/PAIR response that follows it.
+            let end_index = match buffer.find("\r\n") {
                 Some(index) => index,
                 None => {
-                    self.incomplete_sentence.clear();
+                    self.incomplete_sentence = buffer
+                        .rfind('$')
+                        .map(|start| &buffer[start..])
+                        .filter(|pending| pending.len() <= MAX_PENDING_SENTENCE_BYTES)
+                        .unwrap_or_default()
+                        .to_string();
                     break;
                 }
             };
 
-            // c. Find `\r\n` after that `$`.
-            let end_index = match buffer[start_index..].find("\r\n") {
-                Some(index) => start_index + index + 2,
-                None => {
-                    self.incomplete_sentence = buffer[start_index..].to_string();
-                    break;
-                }
-            };
+            // A valid ASCII message cannot contain another `$`, so the final
+            // delimiter safely resynchronizes past any preceding RTCM bytes.
+            let complete_line = &buffer[..end_index];
+            let sentence = complete_line
+                .rfind('$')
+                .map(|start| &complete_line[start..]);
 
-            // e. Extract the complete sentence (without the trailing `\r\n`).
-            let sentence = &buffer[start_index..end_index - 2];
-
-            // g. Dispatch by sentence type.
-            if sentence.starts_with("$PQTM") {
-                log::debug!(
-                    "[PARSER] PQTM sentence: {}",
-                    truncate_utf8(sentence, 80)
-                );
+            if let Some(sentence) = sentence.filter(|sentence| sentence.starts_with("$PQTM")) {
+                log::debug!("[PARSER] PQTM sentence: {}", truncate_utf8(sentence, 80));
                 match PQTMResponse::from_sentence(sentence) {
                     Ok(resp) => {
                         outputs.push(WireMessage::PQTMMessage(resp));
@@ -101,7 +102,8 @@ impl PQTMParser {
                         );
                     }
                 }
-            } else if sentence.starts_with("$PAIR") {
+            } else if let Some(sentence) = sentence.filter(|sentence| sentence.starts_with("$PAIR"))
+            {
                 match PairResponse::from_sentence(sentence) {
                     Ok(pair) => {
                         outputs.push(WireMessage::PairMessage(pair));
@@ -120,11 +122,15 @@ impl PQTMParser {
                         );
                     }
                 }
-            } else if sentence.get(3..6) == Some("GGA") {
+            } else if let Some(sentence) =
+                sentence.filter(|sentence| sentence.get(3..6) == Some("GGA"))
+            {
                 if let Some(gga) = GgaData::parse(sentence) {
                     outputs.push(WireMessage::NmeaGga(gga));
                 }
-            } else if sentence.get(3..6) == Some("GSV") {
+            } else if let Some(sentence) =
+                sentence.filter(|sentence| sentence.get(3..6) == Some("GSV"))
+            {
                 let constellation = sentence
                     .get(1..3)
                     .map(GsvConstellation::from_talker)
@@ -143,12 +149,7 @@ impl PQTMParser {
                 }
             }
 
-            // f. Advance the buffer past `\r\n`.
-            buffer = buffer[end_index..].to_string();
-        }
-
-        if !buffer.contains('$') {
-            self.incomplete_sentence.clear();
+            buffer = buffer[end_index + 2..].to_string();
         }
 
         outputs
@@ -244,5 +245,20 @@ mod tests {
         let mut parser = PQTMParser::new();
         let out = parser.parse_data(&garbled);
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn rtcm_dollar_does_not_hide_pqtm_response() {
+        let mut parser = PQTMParser::new();
+
+        // Model two serial reads: an RTCM payload ends with an arbitrary '$',
+        // then the module returns a valid LC29H-BS version response.
+        assert!(parser.parse_data("\u{fffd}$binary-rtcm").is_empty());
+        let parsed = parser.parse_data("$PQTMVERNO,LC29HBSNR01A01S,2022/08/31,15:22:59*27\r\n");
+
+        assert!(matches!(
+            parsed.as_slice(),
+            [WireMessage::PQTMMessage(PQTMResponse::Verno(_))]
+        ));
     }
 }

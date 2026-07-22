@@ -103,7 +103,7 @@ impl BaseGPS {
 
         // Register a waiter for the expected response:
 
-        self.dispatcher.register_waiter(
+        let waiter_id = self.dispatcher.register_waiter(
             Box::new(|m| match m {
                 WireMessage::PQTMMessage(PQTMResponse::Epe(_)) => false,
                 WireMessage::PQTMMessage(PQTMResponse::SvinStatus(_)) => false,
@@ -116,12 +116,15 @@ impl BaseGPS {
 
         // Send command:
         let sentence = command.to_sentence();
-        self.write_all(sentence.as_bytes()).map_err(|_| {
-            ResponseError::ParseError(ParseError::ParsingError("writing to GPS port failed"))
-        })?;
+        if self.write_all(sentence.as_bytes()).is_err() {
+            self.dispatcher.remove_waiter(waiter_id);
+            return Err(ResponseError::ParseError(ParseError::ParsingError(
+                "writing to GPS port failed",
+            )));
+        }
 
         // Wait for response:
-        match wait_rx.recv_timeout(timeout) {
+        let result = match wait_rx.recv_timeout(timeout) {
             Ok(WireMessage::PQTMMessage(resp)) => Ok(resp),
             Ok(_) => Err(ResponseError::ParseError(ParseError::ParsingError(
                 "unexpected message type received",
@@ -129,7 +132,9 @@ impl BaseGPS {
             Err(_) => Err(ResponseError::ParseError(ParseError::ParsingError(
                 "timeout waiting for response",
             ))),
-        }
+        };
+        self.dispatcher.remove_waiter(waiter_id);
+        result
     }
 
     /// Sends a PAIR get command (e.g., PAIR433, PAIR435).
@@ -143,48 +148,56 @@ impl BaseGPS {
         let (wait_tx, wait_rx) = mpsc::channel();
 
         // Register ONCE for any PAIR message
-        self.dispatcher.register_waiter(
+        let waiter_id = self.dispatcher.register_waiter(
             Box::new(|m| matches!(m, WireMessage::PairMessage(_))),
             wait_tx,
             2,
         );
 
         let sentence = command.to_sentence();
-        self.write_all(sentence.as_bytes())
-            .map_err(|_| ResponseError::ParseError(ParseError::ParsingError("write failed")))?;
+        if self.write_all(sentence.as_bytes()).is_err() {
+            self.dispatcher.remove_waiter(waiter_id);
+            return Err(ResponseError::ParseError(ParseError::ParsingError(
+                "write failed",
+            )));
+        }
 
-        // Wait for ACK first
-        let ack = match wait_rx.recv_timeout(timeout) {
-            Ok(WireMessage::PairMessage(PairResponse::ACK(ack))) => {
-                if ack.result != AckResult::Success {
+        let result = (|| {
+            // Wait for ACK first
+            let ack = match wait_rx.recv_timeout(timeout) {
+                Ok(WireMessage::PairMessage(PairResponse::ACK(ack))) => {
+                    if ack.result != AckResult::Success {
+                        return Err(ResponseError::ParseError(ParseError::ParsingError(
+                            "ACK failed",
+                        )));
+                    }
+                    ack
+                }
+                Ok(_) => {
                     return Err(ResponseError::ParseError(ParseError::ParsingError(
-                        "ACK failed",
+                        "expected ACK, got something else",
                     )));
                 }
-                ack
-            }
-            Ok(_) => {
-                return Err(ResponseError::ParseError(ParseError::ParsingError(
-                    "expected ACK, got something else",
-                )));
-            }
-            Err(_) => {
-                return Err(ResponseError::ParseError(ParseError::ParsingError(
-                    "timeout waiting for ACK",
-                )));
-            }
-        };
+                Err(_) => {
+                    return Err(ResponseError::ParseError(ParseError::ParsingError(
+                        "timeout waiting for ACK",
+                    )));
+                }
+            };
 
-        // Now wait for the actual response (same waiter, same channel)
-        match wait_rx.recv_timeout(timeout) {
-            Ok(WireMessage::PairMessage(resp)) => Ok((ack, resp)),
-            Ok(_) => Err(ResponseError::ParseError(ParseError::ParsingError(
-                "unexpected message type",
-            ))),
-            Err(_) => Err(ResponseError::ParseError(ParseError::ParsingError(
-                "timeout waiting for response",
-            ))),
-        }
+            // Now wait for the actual response (same waiter, same channel)
+            match wait_rx.recv_timeout(timeout) {
+                Ok(WireMessage::PairMessage(resp)) => Ok((ack, resp)),
+                Ok(_) => Err(ResponseError::ParseError(ParseError::ParsingError(
+                    "unexpected message type",
+                ))),
+                Err(_) => Err(ResponseError::ParseError(ParseError::ParsingError(
+                    "timeout waiting for response",
+                ))),
+            }
+        })();
+        self.dispatcher.remove_waiter(waiter_id);
+        result
     }
 
     pub fn send_pair_set(
@@ -195,17 +208,21 @@ impl BaseGPS {
         let (wait_tx, wait_rx) = mpsc::channel();
 
         // Wait for ACK only
-        self.dispatcher.register_waiter(
+        let waiter_id = self.dispatcher.register_waiter(
             Box::new(|m| matches!(m, WireMessage::PairMessage(PairResponse::ACK(_)))),
             wait_tx,
             1,
         );
 
         let sentence = command.to_sentence();
-        self.write_all(sentence.as_bytes())
-            .map_err(|_| ResponseError::ParseError(ParseError::ParsingError("write failed")))?;
+        if self.write_all(sentence.as_bytes()).is_err() {
+            self.dispatcher.remove_waiter(waiter_id);
+            return Err(ResponseError::ParseError(ParseError::ParsingError(
+                "write failed",
+            )));
+        }
 
-        match wait_rx.recv_timeout(timeout) {
+        let result = match wait_rx.recv_timeout(timeout) {
             Ok(WireMessage::PairMessage(PairResponse::ACK(ack))) => {
                 if ack.result == AckResult::Success {
                     Ok(ack)
@@ -222,7 +239,9 @@ impl BaseGPS {
             Err(_) => Err(ResponseError::ParseError(ParseError::ParsingError(
                 "timeout",
             ))),
-        }
+        };
+        self.dispatcher.remove_waiter(waiter_id);
+        result
     }
 
     fn rtk_reader_thread(&self, rtcm_tx: mpsc::Sender<RTCMMessage>) -> JoinHandle<()> {
@@ -261,6 +280,7 @@ impl BaseGPS {
                     }
 
                     Ok(_) => continue, // No data read, continue
+                    Err(e) if e.kind() == io::ErrorKind::TimedOut => continue,
                     Err(e) => {
                         log::error!("[GPS-PORT] Serial read error: {}", e);
                         break;

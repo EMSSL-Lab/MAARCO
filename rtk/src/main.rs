@@ -3,7 +3,7 @@
 use ntrip::source::{NtripSource, NtripSourceConfig, SendOutcome};
 use rtk::WireMessage;
 use rtk::port::BaseGPS;
-use rtk::protocol::commands::{PQTMCfgMsgRate, PQTMCfgNmeaDp, PQTMCfgSvin, PQTMMsgName};
+use rtk::protocol::commands::{PQTMCfgMsgRate, PQTMCfgSvin, PQTMMsgName};
 use rtk::protocol::pair::{PairRTCMSetOutputMode, RtcmMode};
 use rtk::protocol::response::PQTMResponse;
 use std::collections::HashMap;
@@ -92,17 +92,18 @@ fn main() -> AppResult<()> {
     wait_for_survey(&mut gps, &base_config);
 
     println!(
-        "Survey complete; publishing RTCM3 to {}:{}/{}",
+        "Survey complete; connecting to NTRIP source {}:{}/{}",
         ntrip_config.host(),
         ntrip_config.port(),
         ntrip_config.mountpoint()
     );
     let mut ntrip = NtripSource::connect(ntrip_config)?;
+    set_rtcm_mode(&mut gps, RtcmMode::Rtcm3Msm4, "enable RTCM3 MSM4 output")?;
     discard_stale_rtcm(&mut gps);
     run(&mut gps, &mut ntrip)
 }
 
-/// Open and initialize the LC29H.
+/// Open and initialize the LC29H-BS using only commands documented for BS.
 fn setup_and_open(config: &BaseConfig) -> AppResult<BaseGPS> {
     println!("Opening GPS UART: {}", config.gps_port.display());
     let mut gps = BaseGPS::open_port(config.gps_port.clone())?;
@@ -115,27 +116,31 @@ fn setup_and_open(config: &BaseConfig) -> AppResult<BaseGPS> {
         &mut gps,
         config.svin_duration_s,
         config.svin_accuracy_limit_m,
-    );
+    )?;
     Ok(gps)
 }
 
-/// Configure the receiver using PinPointer's proven base-station sequence.
-/// Individual command failures are non-fatal because the receiver may already
-/// contain the requested settings from a previous run.
-fn configure_gps(gps: &mut BaseGPS, svin_duration_s: u32, svin_accuracy_limit_m: f32) {
-    match gps.verno(CMD_TIMEOUT) {
-        Ok(version) => println!(
-            "LC29H version: {} (built {} {})",
-            version.version, version.build_date, version.build_time
-        ),
-        Err(error) => eprintln!("Warning: failed to get LC29H version: {error:?}"),
-    }
+/// Stop any default RTCM stream before exchanging ASCII setup responses, then
+/// configure survey-in and its status output. RTCM is re-enabled only after the
+/// survey and NTRIP connection are ready.
+fn configure_gps(
+    gps: &mut BaseGPS,
+    svin_duration_s: u32,
+    svin_accuracy_limit_m: f32,
+) -> AppResult<()> {
+    set_rtcm_mode(gps, RtcmMode::Disable, "disable existing RTCM3 output")?;
+
+    let version = require_gps_command("query firmware version", gps.verno(CMD_TIMEOUT))?;
+    println!(
+        "LC29H version: {} (built {} {})",
+        version.version, version.build_date, version.build_time
+    );
 
     println!(
         "Configuring survey-in: mode={} min_dur={}s acc_limit={:.1}m",
         SVIN_MODE, svin_duration_s, svin_accuracy_limit_m
     );
-    warn_on_command_error(
+    require_gps_command(
         "configure survey-in",
         gps.cfg_svin_write(
             PQTMCfgSvin {
@@ -148,23 +153,12 @@ fn configure_gps(gps: &mut BaseGPS, svin_duration_s: u32, svin_accuracy_limit_m:
             },
             CMD_TIMEOUT,
         ),
-    );
+    )?;
 
-    warn_on_command_error("save survey parameters", gps.save_par(CMD_TIMEOUT));
-
-    println!("Enabling RTCM3 MSM4 output (PAIR432)");
-    warn_on_command_error(
-        "enable RTCM3 MSM4 output",
-        gps.pair_set_rtcm_mode(
-            PairRTCMSetOutputMode {
-                mode: RtcmMode::Rtcm3Msm4,
-            },
-            CMD_TIMEOUT,
-        ),
-    );
+    require_gps_command("save survey parameters", gps.save_par(CMD_TIMEOUT))?;
 
     println!("Enabling $PQTMSVINSTATUS messages at 1 Hz");
-    warn_on_command_error(
+    require_gps_command(
         "enable survey status output",
         gps.cfg_msgrate_write(
             PQTMCfgMsgRate {
@@ -174,49 +168,28 @@ fn configure_gps(gps: &mut BaseGPS, svin_duration_s: u32, svin_accuracy_limit_m:
             },
             CMD_TIMEOUT,
         ),
-    );
+    )?;
 
-    for sentence_type in [
-        PQTMMsgName::RMC,
-        PQTMMsgName::GGA,
-        PQTMMsgName::GSV,
-        PQTMMsgName::GSA,
-        PQTMMsgName::VTG,
-    ] {
-        let description = format!("enable {sentence_type:?} output");
-        warn_on_command_error(
-            &description,
-            gps.cfg_msgrate_write(
-                PQTMCfgMsgRate {
-                    msg_name: sentence_type,
-                    rate: 1,
-                    msg_ver: 1,
-                },
-                CMD_TIMEOUT,
-            ),
-        );
-    }
+    require_gps_command("save PQTM parameters", gps.save_par(CMD_TIMEOUT))?;
+    Ok(())
+}
 
-    warn_on_command_error(
-        "increase NMEA decimal precision",
-        gps.cfg_nmea_dp_write(
-            PQTMCfgNmeaDp {
-                utc_dp: 3,
-                pos_dp: 8,
-                alt_dp: 3,
-                dop_dp: 2,
-                spd_dp: 3,
-                cog_dp: 2,
-            },
-            CMD_TIMEOUT,
-        ),
-    );
+fn set_rtcm_mode(gps: &mut BaseGPS, mode: RtcmMode, action: &str) -> AppResult<()> {
+    println!("LC29H-BS: {action} (PAIR432)");
+    gps.pair_set_rtcm_mode(PairRTCMSetOutputMode { mode }, CMD_TIMEOUT)
+        .map_err(|error| io::Error::other(format!("LC29H-BS could not {action}: {error:?}")))?;
+    println!("LC29H-BS: {action} OK");
+    Ok(())
+}
 
-    warn_on_command_error("save PQTM parameters", gps.save_par(CMD_TIMEOUT));
-    warn_on_command_error(
-        "save PAIR settings to NVRAM",
-        gps.pair_nvram_save_setting(CMD_TIMEOUT),
-    );
+fn require_gps_command<T>(
+    action: &str,
+    result: Result<T, rtk::protocol::response::ResponseError>,
+) -> AppResult<T> {
+    let value = result
+        .map_err(|error| io::Error::other(format!("LC29H-BS could not {action}: {error:?}")))?;
+    println!("LC29H-BS: {action} OK");
+    Ok(value)
 }
 
 fn wait_for_survey(gps: &mut BaseGPS, config: &BaseConfig) {
@@ -285,16 +258,6 @@ fn discard_stale_rtcm(gps: &mut BaseGPS) {
     }
     if dropped > 0 {
         println!("Discarded {dropped} stale RTCM3 frames");
-    }
-}
-
-fn warn_on_command_error<T>(
-    action: &str,
-    result: Result<T, rtk::protocol::response::ResponseError>,
-) {
-    match result {
-        Ok(_) => println!("LC29H: {action} OK"),
-        Err(error) => eprintln!("Warning: LC29H could not {action} (non-fatal): {error:?}"),
     }
 }
 

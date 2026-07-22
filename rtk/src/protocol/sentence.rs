@@ -186,8 +186,21 @@ impl Deserialize for PairResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::{Deserialize, PairResponse};
-    use crate::protocol::pair::{AidingType, GnssSystem};
+    use super::{Deserialize, PairResponse, Serialize};
+    use crate::protocol::pair::{
+        AidingType, GnssSystem, PairCommand, PairRTCMSetOutputMode, RtcmMode,
+    };
+
+    #[test]
+    fn serializes_pair432_modes_for_lc29h_bs() {
+        for (mode, expected) in [
+            (RtcmMode::Disable, "$PAIR432,-1*0F\r\n"),
+            (RtcmMode::Rtcm3Msm4, "$PAIR432,0*23\r\n"),
+        ] {
+            let command = PairCommand::RtcmSetOutputMode(PairRTCMSetOutputMode { mode });
+            assert_eq!(command.to_sentence(), expected);
+        }
+    }
 
     #[test]
     fn parses_full_pair010_aiding_request() {
