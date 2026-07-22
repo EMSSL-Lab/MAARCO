@@ -5,8 +5,7 @@ use std::io::{self, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 
-#[derive(Debug, Clone, Serialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Default)]
 pub struct SensorData {
     #[serde(skip_deserializing)]
     pub timestamp_ns: u64,
@@ -30,7 +29,6 @@ pub struct SensorData {
     pub rotations_left: Option<f32>,
     pub rotations_right: Option<f32>,
 }
-
 
 #[derive(Debug)]
 pub struct ArduinoSerialPort {

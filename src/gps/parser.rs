@@ -1,7 +1,6 @@
 use nmea::{self, Nmea};
 
 pub fn build_parser() -> Nmea {
-    
     Nmea::default()
 }
 

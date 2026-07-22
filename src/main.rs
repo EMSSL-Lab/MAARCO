@@ -5,11 +5,13 @@ use std::io::{Write, stdout};
 use std::path::PathBuf;
 use std::sync::mpsc::{self};
 
+use ntrip;
+
 mod display;
 mod gps;
 mod gps_serial;
 mod logging;
-mod ntrip;
+// mod ntrip;
 mod usb_serial;
 
 #[derive(Parser, Debug)]
@@ -100,16 +102,15 @@ fn main() -> std::io::Result<()> {
 
                 // If the time has changed, it means we've started a new epoch.
                 // We should log the *previous* epoch's fully accumulated data.
-                if next_parser.fix_time != parser.fix_time
-                    && parser.fix_time.is_some() {
-                        logger.log_nmea(parser.clone(), gga_fix_quality.clone());
-                        display.update_gps(
-                            &mut stdout,
-                            &parser,
-                            gga_fix_quality.clone(),
-                            &ntrip_status,
-                        )?;
-                    }
+                if next_parser.fix_time != parser.fix_time && parser.fix_time.is_some() {
+                    logger.log_nmea(parser.clone(), gga_fix_quality.clone());
+                    display.update_gps(
+                        &mut stdout,
+                        &parser,
+                        gga_fix_quality.clone(),
+                        &ntrip_status,
+                    )?;
+                }
 
                 parser = next_parser;
                 gga_fix_quality = next_gga_fix_quality;

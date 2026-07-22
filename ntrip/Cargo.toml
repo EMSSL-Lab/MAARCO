@@ -1,0 +1,8 @@
+[package]
+name = "ntrip"
+version = "0.1.0"
+edition = "2024"
+description = "NTRIP Client for RTK2GO implementation in Rust"
+
+[dependencies]
+base64 = "0.22.1"

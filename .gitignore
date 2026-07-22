@@ -6,3 +6,6 @@ logs/
 
 # Ignore exported files (e.g. to google earth):
 exports/
+
+# Ignore local configuration and credentials:
+.env

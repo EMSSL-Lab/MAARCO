@@ -1,0 +1,11 @@
+[package]
+name = "rtk"
+version = "0.1.0"
+edition = "2024"
+description = "LC29H General Purpose RTK Library"
+
+[dependencies]
+serialport = { version = "4.7.3", default-features = false }
+log = "0.4"
+libc = "0.2"
+ntrip = { path = "../ntrip" }
