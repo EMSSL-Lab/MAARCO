@@ -25,8 +25,8 @@ use std::time::{Instant, Duration};
 #[command(version, about, long_about = None)]
 struct Args {
     /// NTRIP mountpoint (e.g., MOUNTPOINT) Connect to Cary Base Station by Default
-    #[arg(long, default_value = "VMAX-LAND-1")]
-    ntrip_mount: String, // E.g. "VMAX-LAND-1"
+    #[arg(long)]
+    ntrip_mount: Option<String>, // E.g. "VMAX-LAND-1"
     /// GPS serial port path (e.g., /dev/ttyUSB0)
     #[arg(long, default_value = "/dev/ttyS0")]
     gps_port: PathBuf,
@@ -195,13 +195,17 @@ fn main() -> std::io::Result<()> {
     execute!(stdout, crossterm::cursor::SetCursorStyle::BlinkingBlock)?;
 
     // Channel for NTRIP data to write to serial
-    let (tx, rx) = mpsc::channel::<Vec<u8>>();
-    let mount = args.ntrip_mount.clone(); {
+    let ntrip_rx = if let Some(mount) = args.ntrip_mount {
+        let (tx, rx) = mpsc::channel::<Vec<u8>>();
         std::thread::spawn(move || {
             ntrip::connect_rtk2go_ntrip(tx, &mount);
         });
         println!("Started NTRIP thread");
-    }
+        Some(rx)
+    } else {
+        println!("NTRIP Disabled (no --ntrip-mount argument)");
+        None
+    };
 
     // =========================================================================
     loop {
@@ -211,7 +215,7 @@ fn main() -> std::io::Result<()> {
                 let msg = String::from_utf8_lossy(&udp_buf[..amt]);
                 let parts: Vec<&str> = msg.split(',').collect();
                 last_gcs_time = Instant::now(); // Reset failsafe timer on any valid message
-
+                // RUST recieves UDP data here!!!
                 if parts[0] == "NAV" && parts.len() == 3 {
                     if let (Ok(d), Ok(y)) = (parts[1].parse::<f64>(), parts[2].parse::<f64>()) {
                         target_dist = d;
@@ -220,6 +224,7 @@ fn main() -> std::io::Result<()> {
                         dist_tracker.reset_leg();
                         yaw_ctrl.reset();
                         rpm_ctrl.reset();
+                        rpm_ctrl.reset_base_throttle(); 
                         println!("NAV: {:.3}m @ {:.3}°", target_dist, target_yaw);
                     } else {
                         eprintln!("Invalid NAV format: {}", msg);
@@ -241,6 +246,15 @@ fn main() -> std::io::Result<()> {
                     dist_tracker.reset_for_new_target();
                     println!("Origin reset.");
                 }
+                 else if parts [0] == "ADJUST_DISTANCE_TRACKER" && parts.len() == 3 {
+                    if let (Ok(new_yaw), Ok(new_dist)) = (parts[1].trim().parse::<f64>(), parts[2].trim().parse::<f64>()) {
+                        target_yaw = new_yaw; // Update yaw setpoint to counter cross tracking error
+                        target_dist = new_dist; // Update distance setpoint
+                        // dist_tracker.reset_leg();
+                    }
+                }
+            
+
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {} 
             Err(e) => eprintln!("UDP Error: {}", e),
@@ -327,6 +341,8 @@ fn main() -> std::io::Result<()> {
                 parser = next_parser;
                 gga_fix_quality = next_gga_fix_quality;
             }
+
+            if let Some(ref rx) = ntrip_rx {
             loop {
                 match rx.try_recv() {
                     Ok(data) => {
@@ -434,7 +450,9 @@ fn main() -> std::io::Result<()> {
                 let _ = motor::update_pwm_r(&mut motor_pin_r, 1500);
             }
     } // End of arduino_connected branch
-} // End of Arduino Sensor Branch
+    } // End of arduino_connected branch
+        // End of Arduino Sensor Branch
+}
         
         
         
