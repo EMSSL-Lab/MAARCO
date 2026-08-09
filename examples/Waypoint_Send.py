@@ -268,6 +268,15 @@ class MissionControl:
         self.scale_pen.penup()
         self.scale_pen.color("white")
 
+        self.trail_turtle = turtle.Turtle()
+        self.trail_turtle.hideturtle()
+        self.trail_turtle.penup()
+        self.trail_turtle.speed(0)
+        self.breadcrumbs = []       # List of (x, y) tuples
+        self.last_crumb_x = 0.0
+        self.last_crumb_y = 0.0
+        self.crumb_spacing = 0.25    # Drop a crumb every 0.5 meters
+
         self.origin_pen = turtle.Turtle(visible=False)
         self.origin_pen.speed(0)
         self.origin_pen.penup()
@@ -286,18 +295,24 @@ class MissionControl:
         self.rover.color("#2ecc71")
         self.rover.penup()
 
+
         # ── STATE VARIABLES ───────────────────────────────────────────────────
         self.last_heartbeat      = 0
         self.last_drawn_state    = None
         self.target_rpm          = 0.0
         self.waypoint_queue      = []
         self.is_navigating       = False
+        self.last_yaw_adjust_time = 0.0
         self.active_waypoint     = None
         self.current_rover_x     = 0.0
         self.current_rover_y     = 0.0
         self.distance            = 0.0
         self.target_angle        = 0.0
         self.last_telemetry_time = 0.0
+        self.breadcrumbs = []       # List of (x, y) tuples
+        self.last_crumb_x = 0.0
+        self.last_crumb_y = 0.0
+        self.crumb_spacing = 0.5    # Drop a crumb every 0.5 meters
 
         # Logging state
         self.is_logging      = False
@@ -428,10 +443,10 @@ class MissionControl:
     def draw_gps_fix(self, fix_str):
         """Update the GPS fix quality label with colour coding."""
         COLOR_MAP = {
-            "RTK_FIX":   ("#2ecc71", "RTK FIX"),      # bright green
-            "RTK_FLOAT": ("#3498db", "RTK FLOAT"),     # blue
-            "DGPS":      ("#f1c40f", "DGPS"),          # yellow
-            "GPS":       ("#f39c12", "GPS (AUTONOMOUS)"),  # orange
+            "RTK_FIX":   ("#2ecc71", "RTK FIX (5/5)"),      # bright green
+            "RTK_FLOAT": ("#3498db", "RTK FLOAT (4/5)"),     # blue
+            "DGPS":      ("#f1c40f", "DGPS (3/5)"),          # yellow
+            "GPS":       ("#f39c12", "GPS (AUTONOMOUS) (2/5)"),  # orange
             "NO_FIX":    ("#e74c3c", "NO FIX"),        # red
         }
         color, label = COLOR_MAP.get(fix_str, ("#e74c3c", fix_str))
@@ -559,6 +574,12 @@ class MissionControl:
         self.grid_tool.goto(self.pan_x - self.view_size + margin_x, self.pan_y)
         self.grid_tool.write("WEST", align="left", font=("Verdana", 10, "bold"))
 
+        # Breadcrumbs (dotted trail of past rover positions)
+        self.trail_turtle.clear()
+
+        for (crumb_x, crumb_y) in self.breadcrumbs:
+            self.trail_turtle.goto(crumb_x, crumb_y)
+            self.trail_turtle.dot(4, "#4be15f")  # bright yellow dot
         self.screen.update()
 
     # ── ORIGIN MARKER ─────────────────────────────────────────────────────────
@@ -628,10 +649,8 @@ class MissionControl:
             dy = y - self.current_rover_y
             dist = math.sqrt(dx**2 + dy**2)
             target_angle = math.degrees(math.atan2(dx, dy))
-            if target_angle < 0:
-                target_angle += 360
+         
             self.draw_nav_info(dist, target_angle)
-
     def start_mission(self):
         if self.is_navigating:
             print("Already navigating!")
@@ -656,6 +675,7 @@ class MissionControl:
 
     def clear_mission(self):
         self.drawer.clear()
+        self.trail_turtle.clear()
         self.drawer.penup()
         self.waypoint_queue.clear()
         self.update_status("CLEARED: Ready for new points")
@@ -663,6 +683,7 @@ class MissionControl:
         self.target_angle    = 0.0
         self.active_waypoint = None
         self.is_navigating   = False
+        self.breadcrumbs = []
         self.lbl_dist.config(text="DIST TO TARGET:  —")
         self.lbl_brng.config(text="BEARING TO TARGET:  —")
         self.lbl_rpm.config( text=f"RPM SETPOINT:   {self.target_rpm:.1f}")
@@ -673,6 +694,9 @@ class MissionControl:
     def set_origin(self):
         self.sock.sendto(b"SET_ORIGIN", RUST_SEND_ADDR)
         self.update_status("ORIGIN SET: Rover at (0,0)")
+        self.breadcrumbs.clear()
+        self.last_crumb_x = 0.0
+        self.last_crumb_y = 0.0
         print("Sent: SET_ORIGIN")
 
     def undo_waypoint(self):
@@ -707,7 +731,7 @@ class MissionControl:
         dx = tx - self.current_rover_x
         dy = ty - self.current_rover_y
         distance     = math.sqrt(dx**2 + dy**2)
-        target_angle = math.degrees(math.atan2(dx, dy)) ## Swapped dx and dy here, UI has 0 degrees as east but RUST sees o degrees as North, so we need to swap the arguments to atan2 to get the correct angle for RUST
+        target_angle = math.degrees(math.atan2(dx, dy)) ## Convert yaw angle from math heading to compass heading 
         nav_msg = f"NAV,{distance:.3f},{target_angle:.3f}"
         self.sock.sendto(nav_msg.encode(), RUST_SEND_ADDR)
         self.draw_nav_info(distance, target_angle)
@@ -821,7 +845,7 @@ class MissionControl:
         print("[LOG] Logging stopped.")
 
 
-    # ── MAIN TELEMETRY LOOP ───────────────────────────────────────────────────
+    # ── DATA Recieved from RUST ───────────────────────────────────────────────────
 
     def update_rover(self):
         try:
@@ -835,6 +859,13 @@ class MissionControl:
                 rover_yaw            = float(msg[3])
                 self.lbl_coords.config(text=f"Position: X: {self.current_rover_x:.2f}, Y: {self.current_rover_y:.2f}")
                 turtle_angle         = (90 - rover_yaw) % 360
+
+            # NEW, bread crumb trail logic
+                dist_from_last_crumb = math.hypot(self.current_rover_x - self.last_crumb_x, self.current_rover_y - self.last_crumb_y)
+                if dist_from_last_crumb >= self.crumb_spacing:
+                    self.breadcrumbs.append((self.current_rover_x, self.current_rover_y))
+                    self.last_crumb_x = self.current_rover_x
+                    self.last_crumb_y = self.current_rover_y
 
             # --- NEW BATTERY WARNING LOGIC ---
                 if len(msg) > 10:
@@ -905,7 +936,15 @@ class MissionControl:
                     dx = self.active_waypoint[0] - self.current_rover_x
                     dy = self.active_waypoint[1] - self.current_rover_y
                     remaining_dist = math.sqrt(dx**2 + dy**2)
-                    self.draw_nav_info(remaining_dist, rover_yaw)
+                    # Recalculate true bearing to target
+                    target_angle = math.degrees(math.atan2(dx,dy))
+                    self.draw_nav_info(remaining_dist, target_angle)
+                    current_time = time.time()
+                    if self.is_navigating and (current_time - self.last_yaw_adjust_time > 1.0):
+                         adjust_cmd = f"ADJUST_DISTANCE_TRACKER,{target_angle:.2f},{remaining_dist:.2f}"
+                         self.sock.sendto(adjust_cmd.encode(), RUST_SEND_ADDR)
+                         self.last_yaw_adjust_time = current_time
+
                 else:
                     self.lbl_dist.config(text="DIST TO TARGET:  —")
                     self.lbl_brng.config(text="BEARING TO TARGET:  —")

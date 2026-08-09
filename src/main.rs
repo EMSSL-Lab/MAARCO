@@ -209,6 +209,8 @@ fn main() -> std::io::Result<()> {
 
     // =========================================================================
     loop {
+
+        // RECIEVE DATA FROM UI
         // ***NEW Ground Control Station PARSING LOGIC
         match socket.recv_from(&mut udp_buf) {
             Ok((amt, _src)) => {
