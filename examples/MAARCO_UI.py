@@ -815,7 +815,9 @@ class MissionControl:
         try:
             self.log_file = open(log_path, "w", newline="")
             self.log_writer = csv.writer(self.log_file)
-            self.log_writer.writerow(["timestamp", "x_meters", "y_meters","gps_fix","accel_x","accel_y","accel_z","yaw","pitch","roll","voltage_l","voltage_r","current_l","current_r","motor_current_l","motor_current_r","rpm_l","rpm_r","sonar_mm","tof_mm","rotations_l","rotations_r","gyro_x","gyro_y","gyro_z"])  # Header row
+            # Write the header row for the csv file
+            self.log_writer.writerow(["timestamp", "x_meters", "y_meters","gps_fix","accel_x","accel_y","accel_z","yaw","pitch","roll","voltage_l","voltage_r","current_l","current_r","motor_current_l","motor_current_r","rpm_l","rpm_r","sonar_mm","tof_mm","rotations_l","rotations_r","gyro_x","gyro_y","gyro_z",
+            "timestamp_ns","fix_time","fix_date","gga_fix_quality","avg_snr","latitude","longitude","altitude","speed_over_ground","true_course","num_of_satellites","hdop","vdop","pdop","geoid_separation"                          ])  # Header row
             self.log_file.flush()
             self.is_logging = True
             self.lbl_logging.config(text="● LOGGING: ON", fg="#2ecc71")

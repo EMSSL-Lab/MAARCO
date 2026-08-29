@@ -8,9 +8,9 @@ mod usb_serial;
 mod yaw_control;
 mod rpm_control;
 mod distance_tracker;
-
 use clap::Parser;
 use crossterm::execute;
+use std::alloc::Layout;
 use std::io::{Write, stdout};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, TryRecvError};
@@ -378,8 +378,27 @@ fn main() -> std::io::Result<()> {
             
             logger.log_sensor_data(&sensor_data);
             display.update_arduino(&mut stdout, &sensor_data)?;
-            
-            // Bring all sensor data into scope so we can send to UI logger
+
+                let current_time = logging::get_timestamp_nanos();
+                let gps_data = logging::GpsLogData::from_nmea(parser.clone(), gga_fix_quality.clone(), current_time);
+                // extract GPS data from NMEA parser 
+                let timestamp_ns = gps_data.timestamp_ns as f64;
+                let fix_time = gps_data.fix_time.unwrap_or("".to_string());
+                let fix_date = gps_data.fix_date.unwrap_or("".to_string());
+                let gga_fix_quality = gps_data.gga_fix_quality.unwrap_or("".to_string());
+                let avg_snr = gps_data.avg_snr.unwrap_or(0.0);
+                let latitude = gps_data.latitude.unwrap_or(0.0);
+                let longitude = gps_data.longitude.unwrap_or(0.0);
+                let altitude_m = gps_data.altitude_m.unwrap_or(0.0);
+                let speed_over_ground = gps_data.speed_over_ground.unwrap_or(0.0);
+                let true_course = gps_data.true_course.unwrap_or(0.0);
+                let num_of_fix_satellites = gps_data.num_of_fix_satellites.unwrap_or(0);
+                let hdop = gps_data.hdop.unwrap_or(0.0);
+                let vdop = gps_data.vdop.unwrap_or(0.0);
+                let pdop = gps_data.pdop.unwrap_or(0.0);
+                let geoid_separation = gps_data.geoid_separation.unwrap_or(0.0);
+
+            // Bring all Arduino sensor data into scope so we can send to UI logger
             // Fall back to 0.0 for any missing IMU fields (IMU disconnected)
                 let ax = sensor_data.acc_lin_x.unwrap_or(0.0) as f64;
                 let ay = sensor_data.acc_lin_y.unwrap_or(0.0) as f64;
@@ -409,8 +428,8 @@ fn main() -> std::io::Result<()> {
                 
                 // Send live position + GPS fix quality back to Python
                 let fix_label = match gga_fix_quality
-                    .as_deref()
-                    .and_then(|q| q.trim().parse::<u8>().ok())
+                    .trim()
+                    .parse::<u8>().ok()
                     .unwrap_or(0)
                 {
                     1 => "GPS",
@@ -419,7 +438,11 @@ fn main() -> std::io::Result<()> {
                     5 => "RTK_FLOAT",
                     _ => "NO_FIX",
                 };
-                let telem_msg = format!("TELEM,{:.3},{:.3},{:.2},{},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3}", dist_tracker.x, dist_tracker.y, yaw, fix_label, ax, ay, az, pitch, roll, voltage_left, voltage_right, current_left, current_right, motor_current_left, motor_current_right, rpm_left, rpm_right, sonar_mm, tof_mm, rotations_left, rotations_right, gyro_x, gyro_y, gyro_z);
+                //*********** */ Send all data the rover recieves to the python UI
+                let telem_msg = format!("TELEM,{:.3},{:.3},{:.2},{},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},\
+                {:.3},{},{},{},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3}", 
+                 dist_tracker.x, dist_tracker.y, yaw, fix_label, ax, ay, az, pitch, roll, voltage_left, voltage_right, current_left, current_right, motor_current_left, motor_current_right, rpm_left, rpm_right, sonar_mm, tof_mm, rotations_left, rotations_right, gyro_x, gyro_y, gyro_z,
+                timestamp_ns,fix_time,fix_date,gga_fix_quality,avg_snr,latitude,longitude,altitude_m,speed_over_ground,true_course,num_of_fix_satellites,hdop,vdop,pdop,geoid_separation); 
                 let _ = socket.send_to(telem_msg.as_bytes(), "172.20.10.7:5008");
                 
                 // 2. Control Logic (Only if we are trying to move somewhere)

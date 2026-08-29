@@ -43,7 +43,7 @@ pub struct GpsLogData {
 }
 
 impl GpsLogData {
-    fn from_nmea(nmea: Nmea, gga_fix_quality: Option<String>, timestamp_ns: u64) -> Self {
+    pub fn from_nmea(nmea: Nmea, gga_fix_quality: Option<String>, timestamp_ns: u64) -> Self {
         let sats = nmea.satellites();
         let mut avg_snr = 0.0;
         let mut count = 0;
@@ -176,7 +176,10 @@ fn run_logger(rx: Receiver<LoggerPackets>, log_file_path: PathBuf) -> std::io::R
             Ok(packet) => match packet {
                 LoggerPackets::NmeaSentence(data, gga_fix_quality) => {
                     let timestamp_ns = get_timestamp_nanos();
+
+                    // Extract GPS log data from NMEA parser
                     let gps_data = GpsLogData::from_nmea(data, gga_fix_quality, timestamp_ns);
+                    
                     gps_writer.serialize(gps_data)?;
                     gps_writer.flush()?;
                 }
@@ -201,7 +204,7 @@ fn run_logger(rx: Receiver<LoggerPackets>, log_file_path: PathBuf) -> std::io::R
 }
 
 /// Get current timestamp in nanoseconds since UNIX epoch
-fn get_timestamp_nanos() -> u64 {
+pub fn get_timestamp_nanos() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards")
