@@ -67,6 +67,22 @@ struct Args {
 
 fn main() -> std::io::Result<()> {
     let args = Args::parse();
+    // Set default socket send IP address, this is the IP address of the PC running the python UI
+    let default_gcs_ip = "172.20.10.7:5008";
+    println!("\n================================================");
+    println!("Enter Ground Control Station IP address or press [Enter] to keep default [{}] ",default_gcs_ip);
+    let mut input = String::new();
+    stdin().read_line(&mut input)?;
+    let trimmed = input.trim();
+
+    let gcs_addr = if trimmed.is_empty() {
+        default_gcs_ip.to_string()
+    } else if !trimmed.contains(':') {
+        format!("{}:5008", trimmed)
+    } else {
+        trimmed.to_string()
+    };
+    println!("Sending Telemetry to IP address: {}", gcs_addr);
 
     let log_file = match args.log_file {
         Some(path) => path,
@@ -464,27 +480,28 @@ fn main() -> std::io::Result<()> {
                 {:.3},{},{},{},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3}", 
                  dist_tracker.x, dist_tracker.y, fix_label, ax, ay, az, yaw, pitch, roll, voltage_left, voltage_right, current_left, current_right, motor_current_left, motor_current_right, rpm_left, rpm_right, sonar_mm, tof_mm, rotations_left, rotations_right, gyro_x, gyro_y, gyro_z,
                 timestamp_ns,fix_time,fix_date,gga_fix_quality,avg_snr,latitude,longitude,altitude_m,speed_over_ground,true_course,num_of_fix_satellites,hdop,vdop,pdop,geoid_separation); 
-                let _ = socket.send_to(telem_msg.as_bytes(), "172.20.10.7:5008");
+                let _ = socket.send_to(telem_msg.as_bytes(), &gcs_addr);
                 
                 // 2. Control Logic (Only if we are trying to move somewhere)
                 if is_active_leg {
                     // Check for Arrival
                     if dist_out.arrived {
                         println!("Target reached! Stopping.");
-                        let _ = socket.send_to(b"ARRIVED", "172.20.10.7:5008");
-                        is_active_leg = false; 
+                        let _ = socket.send_to(b"ARRIVED", &gcs_addr);
+                        is_active_leg = false;
                     } else {
-                    // Left Motor RPM Control
-                    if let Some(rpm_l) = sensor_data.rpm_left {
-                        let rpm_cmd = rpm_ctrl.compute_motor_commands(rpm_l as f64, target_rpm);
-                        base_throttle = rpm_cmd.base_throttle;
-                        let _ = motor::update_pwm_l(&mut motor_pin_l, rpm_cmd.left_pwm as i64);
+                        // Left Motor RPM Control
+                        if let Some(rpm_l) = sensor_data.rpm_left {
+                            let rpm_cmd = rpm_ctrl.compute_motor_commands(rpm_l as f64, target_rpm);
+                            base_throttle = rpm_cmd.base_throttle;
+                            let _ = motor::update_pwm_l(&mut motor_pin_l, rpm_cmd.left_pwm as i64);
+                        }
+                        // Right Motor Yaw Control (Heading)
+                        if let Some(euler_x) = sensor_data.euler_x {
+                            let yaw_cmd = yaw_ctrl.compute_motor_commands(euler_x as f64, target_yaw, base_throttle);
+                            let _ = motor::update_pwm_r(&mut motor_pin_r, yaw_cmd.right_pwm_us as i64);
+                        }
                     }
-                    // Right Motor Yaw Control (Heading)
-                    if let Some(euler_x) = sensor_data.euler_x {
-                        let yaw_cmd = yaw_ctrl.compute_motor_commands(euler_x as f64, target_yaw, base_throttle);
-                        let _ = motor::update_pwm_r(&mut motor_pin_r, yaw_cmd.right_pwm_us as i64);
-                    }}
                 } else {
                     // MISSION NOT ACTIVE: Force motors to neutral
                     let _ = motor::update_pwm_l(&mut motor_pin_l, 1500);
@@ -495,13 +512,12 @@ fn main() -> std::io::Result<()> {
                 let _ = motor::update_pwm_l(&mut motor_pin_l, 1500);
                 let _ = motor::update_pwm_r(&mut motor_pin_r, 1500);
             }
-    } // End of arduino_connected branch
-    } // End of arduino_connected branch
+        } // End of arduino_connected branch
         // End of Arduino Sensor Branch
+    }
+
+    Ok(())
 }
-        
-        
-        
 
 
 
