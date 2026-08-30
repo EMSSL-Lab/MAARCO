@@ -757,10 +757,13 @@ class MissionControl:
         """Parse the full TELEM message and refresh every label in the live panel.
 
         Expected TELEM format (0-based msg index):
+
+        ============================= Arduino Data =============================
+
           msg[0]  = "TELEM"
           msg[1]  = x           msg[2]  = y
-          msg[3]  = yaw         msg[4]  = gps_fix
-          msg[5]  = accel_x     msg[6]  = accel_y     msg[7]  = accel_z
+          msg[3]  = fix label         msg[4]  = accel_x
+          msg[5]  = accel_y     msg[6]  = accel_z     msg[7]  = yaw
           msg[8]  = pitch       msg[9]  = roll
           msg[10] = voltage_l   msg[11] = voltage_r
           msg[12] = current_l   msg[13] = current_r
@@ -769,7 +772,18 @@ class MissionControl:
           msg[18] = sonar_mm    msg[19] = tof_mm
           msg[20] = rotations_l msg[21] = rotations_r
           msg [22] = gyro_x     msg[23] = gyro_y     msg[24] = gyro_z
+
+        =============================== GPS DATA ===============================
+
+            msg [25] = timestamp_ns, msg [26] = fix_time,
+            msg [27] = fix_date, msg [28] = gga_fix_quality
+            msg [29] = avg_snr, msg [30] = latitude, msg [31] = longitude,
+            msg [32] = altitude, msg [33] = speed_over_ground,
+            msg [34] = true_course, msg [35] = num_of_satellites
+            msg [36] = hdop, msg [37] = vdop, msg [38] = pdop,
+            msg [39] = geoid_separation
         """
+
         def _safe(index, fmt=".2f", suffix=""):
             try:
                 return f"{float(msg[index]):{fmt}}{suffix}"
@@ -777,15 +791,15 @@ class MissionControl:
                 return "—"
 
         # IMU / Attitude
-        self.td_yaw.config(  text=_safe(3,  ".1f", "°"))
+        self.td_yaw.config(  text=_safe(7,  ".1f", "°"))
         self.td_pitch.config( text=_safe(8,  ".1f", "°"))
         self.td_roll.config(  text=_safe(9,  ".1f", "°"))
         self.td_gyro_x.config( text=_safe(22,  ".3f", " °/s"))
         self.td_gyro_y.config( text=_safe(23,  ".3f", " °/s"))
         self.td_gyro_z.config( text=_safe(24,  ".3f"," °/s"))
-        self.td_ax.config(    text=_safe(5,  ".3f", " g"))
-        self.td_ay.config(    text=_safe(6,  ".3f", " g"))
-        self.td_az.config(    text=_safe(7,  ".3f", " g"))
+        self.td_ax.config(    text=_safe(4,  ".3f", " g"))
+        self.td_ay.config(    text=_safe(5,  ".3f", " g"))
+        self.td_az.config(    text=_safe(6,  ".3f", " g"))
 
         # Drivetrain
         self.td_rpm_r.config(  text=_safe(17, ".1f", " rpm"))
@@ -816,7 +830,7 @@ class MissionControl:
             self.log_file = open(log_path, "w", newline="")
             self.log_writer = csv.writer(self.log_file)
             # Write the header row for the csv file
-            self.log_writer.writerow(["timestamp", "x_meters", "y_meters","gps_fix","accel_x","accel_y","accel_z","yaw","pitch","roll","voltage_l","voltage_r","current_l","current_r","motor_current_l","motor_current_r","rpm_l","rpm_r","sonar_mm","tof_mm","rotations_l","rotations_r","gyro_x","gyro_y","gyro_z",
+            self.log_writer.writerow([ "x_meters", "y_meters","fix_label","accel_x","accel_y","accel_z","yaw","pitch","roll","voltage_l","voltage_r","current_l","current_r","motor_current_l","motor_current_r","rpm_l","rpm_r","sonar_mm","tof_mm","rotations_l","rotations_r","gyro_x","gyro_y","gyro_z",
             "timestamp_ns","fix_time","fix_date","gga_fix_quality","avg_snr","latitude","longitude","altitude","speed_over_ground","true_course","num_of_satellites","hdop","vdop","pdop","geoid_separation"                          ])  # Header row
             self.log_file.flush()
             self.is_logging = True
@@ -858,7 +872,7 @@ class MissionControl:
             if msg[0] == "TELEM" and len(msg) >= 4:
                 self.current_rover_x = float(msg[1])
                 self.current_rover_y = float(msg[2])
-                rover_yaw            = float(msg[3])
+                rover_yaw            = float(msg[7])
                 self.lbl_coords.config(text=f"Position: X: {self.current_rover_x:.2f}, Y: {self.current_rover_y:.2f}")
                 turtle_angle         = (90 - rover_yaw) % 360
 
@@ -930,9 +944,9 @@ class MissionControl:
                 self.rover.setheading(turtle_angle)
                 self.draw_path()
 
-                # GPS fix quality (msg[4] added by updated Rust firmware)
+                # Get GPS fix quality msg[3] 
                 if len(msg) >= 5:
-                    self.draw_gps_fix(msg[4].strip())
+                    self.draw_gps_fix(msg[3].strip())
 
                 if self.active_waypoint:
                     dx = self.active_waypoint[0] - self.current_rover_x
