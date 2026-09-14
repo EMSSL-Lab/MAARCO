@@ -3,6 +3,7 @@ import socket
 import math
 import time
 import tkinter as tk
+from tkintermapview import TkinterMapView
 import csv
 import os
 from collections import deque
@@ -14,13 +15,18 @@ PYTHON_LISTEN_ADDR = ("0.0.0.0", 5008)
 
 
 class MissionControl:
-    def __init__(self):
+    def __init__(self):\
+
+        """Turtle Screen setup"""
         self.screen = turtle.Screen()
         self.screen.setup(width=1340, height=800)
         self.screen.bgcolor("#2c3e50")
-        self.screen.title("Rover GCS - [1] Start | [2] Clear | [3] STOP | [4] Set Origin | [5] Undo | [▲] RPM+ | [▼] RPM- | Scroll=Zoom | Drag=Pan")
+        self.screen.title("Rover GCS - [1] Start | [2] Clear | [3] STOP | [4] Set Origin | [5] Undo | [▲] RPM+ | [▼] RPM- | Scroll=Zoom | Drag=Pan | [M] Toggle MapView | [S] Satellite View | [R] RoadView")
 
-        # ── VIEW STATE ────────────────────────────────────────────────────────
+    
+
+        """ Tkinter Setup"""
+        
         # view_size: half-width/height of the visible world in meters
         # pan_x/pan_y: world-space center of the current view (origin starts at 0,0)
         self.view_size = 5.0
@@ -41,6 +47,24 @@ class MissionControl:
         self.tk_canvas.config(width=win_w - self.HUD_W - self.TELEM_W, height=win_h)
         self.tk_canvas.grid(row=0, column=0, sticky="nsew")
 
+        """ =========================== MAP VIEW SETUP =================================="""
+
+        self.tkmapview_root = self.screen._root
+        self.map_view = TkinterMapView(self.tkmapview_root, width=win_w - self.HUD_W - self.TELEM_W, height=win_h)
+        self.map_frame = tk.Frame(self.tk_root, bg="#1a252f", bd=2, relief="sunken")
+        self.map_frame.grid(row=0, column=0, sticky="nsew")
+        self.map_frame.grid_remove()  # Hide the map frame initially
+        self.map_widget = TkinterMapView(self.map_frame, corner_radius=0)
+        self.map_widget.pack(padx=5, pady=5, fill="both", expand=True)
+        self.map_on = True  # Flag to track whether the map view is currently displayed
+        self.rover_lat = 32.9856 # Initialize rover latitude
+        self.rover_lon = -80.1098 # Initialize rover longitude
+        self.map_widget.set_position(self.rover_lat, self.rover_lon)  # Set initial position
+        self.rover_marker = self.map_widget.set_marker(self.rover_lat, self.rover_lon, text="Rover")
+        self.satellite_view = False  # Flag to track whether satellite view is currently enabled
+        self.streetview = False  # Flag to track whether street view is currently enabled
+        """============================================================================="""
+        
         # ── HUD PANEL ─────────────────────────────────────────────────────────
         self.hud_frame = tk.Frame(self.tk_root, bg="#1a252f",
                                   width=self.HUD_W, bd=2, relief="sunken")
@@ -169,7 +193,7 @@ class MissionControl:
 
 
         tk.Label(self.hud_frame,
-                 text="[1] Start  [2] Clear\n[3] STOP   [4] Origin\n[5] Undo   [6/7] RPM±\nScroll=Zoom  Drag=Pan",
+                 text="[1] Start  [2] Clear\n[3] STOP   [4] Origin\n[5] Undo   [6/7] RPM±\nScroll=Zoom  Drag=Pan" "  [M] Toggle MapView",
                  bg="#1a252f", fg="#7f8c8d",
                  font=("Arial", 8, "normal"),
                  justify="left").pack(side="bottom", padx=8, pady=8, anchor="w")
@@ -348,6 +372,9 @@ class MissionControl:
         self.screen.onkey(self.undo_waypoint,  "5")
         self.screen.onkey(self.increase_rpm,   "Up")
         self.screen.onkey(self.decrease_rpm,   "Down")
+        self.screen.onkey(self.mapview, "m")
+        self.screen.onkey(self.mapview_switch_to_satellite, "s")
+        self.screen.onkey(self.mapview_switch_to_streetview, "r")
 
         self.update_status("READY: Click to set points")
         self.update_rover()
@@ -861,8 +888,43 @@ class MissionControl:
         print("[LOG] Logging stopped.")
 
 
-    # ── DATA Recieved from RUST ───────────────────────────────────────────────────
+    """ Switch to mapview"""
+    def mapview(self): 
+        if self.map_on: 
+            self.map_frame.grid_remove()
+            self.tk_canvas.grid() 
+            self.map_on = False
+            # Switched to turtle view
+        else:
+            self.tk_canvas.grid_remove()
+            self.map_frame.grid()
+            self.map_on = True
+            # Switched to map view
+        self.screen.update()
 
+
+    def update_mapview(self):
+        if self.map_on:
+            # Update the map view with the current rover position
+            self.rover_lat = self.live_data.get("latitude", None)
+            self.rover_lon = self.live_data.get("longitude", None)
+            if self.rover_lat is not None and self.rover_lon is not None:
+                self.rover_marker = map_widget.set_marker(self.rover_lat, self.rover_lon, marker_color="red", marker_size=10)
+    def mapview_switch_to_satellite(self):
+        self.satellite_view = True
+        if self.satellite_view:
+            self.map_widget.set_tile_server("https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}&s=Ga", max_zoom=22)  # google satellite
+        else:
+            self.map_widget.set_tile_server("https://tile.openstreetmap.org/{z}/{x}/{y}.png", max_zoom=19)  # openstreetmap
+        self.screen.update()
+    def mapview_switch_to_streetview(self):
+        self.streetview = True
+        if self.streetview:
+            self.map_widget.set_tile_server("https://tile.openstreetmap.org/{z}/{x}/{y}.png", max_zoom=19)  # openstreetmap
+
+
+
+    # ── DATA Recieved from RUST ───────────────────────────────────────────────────
     def update_rover(self):
         try:
             data, addr = self.sock.recvfrom(1024)
