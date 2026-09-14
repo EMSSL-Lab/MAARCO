@@ -9,6 +9,8 @@ import os
 from collections import deque
 from datetime import datetime
 
+import tkintermapview
+
 # UPDATE THESE TO YOUR ACTUAL IPs
 RUST_SEND_ADDR = ("172.20.10.4", 5007)
 PYTHON_LISTEN_ADDR = ("0.0.0.0", 5008)
@@ -176,9 +178,19 @@ class MissionControl:
         )
         self.btn_stop_log.pack(side="left")
 
-        ## Motor battery voltage label
-
         tk.Frame(self.hud_frame, bg="#34495e", height=1).pack(fill="x", padx=6, pady=4)
+
+        self.lbl_location = tk.Label(self.hud_frame, text="Location Lookup", bg="#1a252f", font=("Arial", 9, "bold"), fg="#7f8c8d")
+        self.lbl_location.pack(**pad)
+
+        self.location_text_entry = tk.Entry(self.hud_frame, bg="#e1e5e8", fg="#111212", font=("Arial", 9, "normal"))
+        self.location_text_entry.pack(**pad)
+
+        self.location_entry = self.location_text_entry.get()
+
+        self.search_button = tk.Button(self.hud_frame, text="Search", bg="#3498db", fg="white", font=("Arial", 9, "bold"), activebackground="#2980b9", activeforeground="white", relief="raised", bd=2, padx=6, pady=3, command=self.location_entry)
+
+        ## Motor battery voltage label
 
         tk.Frame(self.hud_frame, bg="#34495e", height=1).pack(fill="x", padx=6, pady=4)
 
@@ -375,6 +387,8 @@ class MissionControl:
         self.screen.onkey(self.mapview, "m")
         self.screen.onkey(self.mapview_switch_to_satellite, "s")
         self.screen.onkey(self.mapview_switch_to_streetview, "r")
+        self.screen.onkey(self.location_entry, "Return")  # Bind Enter key to location_entry method
+
 
         self.update_status("READY: Click to set points")
         self.update_rover()
@@ -921,7 +935,14 @@ class MissionControl:
         self.streetview = True
         if self.streetview:
             self.map_widget.set_tile_server("https://tile.openstreetmap.org/{z}/{x}/{y}.png", max_zoom=19)  # openstreetmap
-
+    def location_entry(self):
+        location_entry = self.location_entry.get()
+        self.map_widget.set_address(location_entry, marker=True)
+        print("Location Entry: ", location_entry)
+       
+      
+        
+       
 
 
     # ── DATA Recieved from RUST ───────────────────────────────────────────────────
